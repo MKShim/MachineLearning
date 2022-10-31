@@ -1,0 +1,201 @@
+rm(list=ls(all=TRUE))
+
+install.packages("scales", type="source")
+#install.packages('mvtnorm',type='mac.binary')
+
+library(modelsummary)
+library(readxl)
+library(MatchIt)
+library(optmatch)
+library(lmtest)
+library(sandwich)
+library(sensitivityfull)
+library(sensitivitymw)
+library(usethis)
+library(scales)
+
+library(mvtnorm)
+library(DOS2)
+library(ivreg)
+
+labor24<-read_excel("/Users/minkyoung/Documents/data/Labor/data/24th_var07.xlsx")
+## checking covariate balance between treated and control subjects. 
+labor24=na.omit(labor24)
+
+
+ori_res3 = glm(house_workhour~job_difficulty+house_income_variable+
+                 number_household+trt+age+gender+edu+asset_income+
+                 trans_income+realtyasset_variable+finasset_variable,
+               data = labor24, family='gaussian')
+
+
+ori_ols <- lm(house_workhour ~ trt + job_difficulty+house_income_variable+
+              number_household+trt+age+gender+edu+asset_income+
+              trans_income+realtyasset_variable+finasset_variable,
+            data = labor24)
+summary(ori_ols)
+
+
+labor24 = transform(labor24, house_workhour = scale(house_workhour))
+labor24 = transform(labor24, house_income_variable = scale(log(house_income_variable+1)))
+labor24 = transform(labor24, asset_income = scale(log(asset_income+1)))
+labor24 = transform(labor24, trans_income = scale(log(trans_income+1)))
+labor24 = transform(labor24, realtyasset_variable = scale(realtyasset_variable))
+labor24 = transform(labor24, finasset_variable = scale(finasset_variable))
+labor24 = transform(labor24, age = log(age+1))
+
+head(rescale(labor24$house_workhour))
+head(labor24$house_workhour)
+
+tmt_res3 = glm(house_workhour~job_difficulty+house_income_variable+
+                 number_household+trt+age+gender+edu+asset_income+
+                 trans_income+realtyasset_variable+finasset_variable,
+               data = labor24, family='gaussian')
+
+
+m_ols <- lm(house_workhour ~ trt + job_difficulty+house_income_variable+
+              number_household+trt+age+gender+edu+asset_income+
+              trans_income+realtyasset_variable+finasset_variable,
+            data = labor24)
+summary(m_ols)
+
+
+m_iv <- ivreg(house_workhour ~ iv_trt + job_difficulty+house_income_variable+
+                number_household+trt+age+gender+edu+asset_income+
+                trans_income+realtyasset_variable+finasset_variable |
+                iv_trt + job_difficulty+house_income_variable+
+                number_household+trt+age+gender+edu+asset_income+
+                trans_income+realtyasset_variable+finasset_variable, data = labor24)
+
+m_iv <- ivreg(house_workhour ~ trt + job_difficulty+house_income_variable+
+                number_household+trt+age+gender+edu+asset_income+
+                trans_income+realtyasset_variable+finasset_variable |
+                iv_trt + job_difficulty+house_income_variable+
+                number_household+trt+age+gender+edu+asset_income+
+                trans_income+realtyasset_variable+finasset_variable, data = labor24)
+
+m_iv <- ivreg(house_workhour ~job_difficulty+house_income_variable+
+                number_household+trt+age+gender+edu+asset_income+
+                trans_income+realtyasset_variable+finasset_variable | trt |
+                iv_trt, data = labor24)
+
+
+summary(m_iv)
+
+modelplot(m_list)
+modelplot(m_list, coef_omit = "Intercept|experience")
+
+m_list <- list(OLS = m_ols, IV = m_iv)
+msummary(m_list)
+
+######################## 
+
+summary.labor24.exp = aggregate(labor24[,3:14], list(labor24$trt), FUN = mean) 
+colnames(summary.labor24.exp)[1] = "Treatment"
+summary.labor24.exp
+
+ps.fit = glm(trt ~ house_income_variable + number_household + age + job_difficulty +
+               gender + edu + asset_income + trans_income + realtyasset_variable + finasset_variable, family=binomial(link="probit"), x=T, data=labor24)
+summary(ps.fit)
+
+
+est.ps = predict(ps.fit, type = "response")
+hist(est.ps[labor24$trt==0], col = rgb(1,0,0,0.2), xlab = "Propensity Score", main = "Tr")
+hist(est.ps[labor24$trt==1], col = rgb(0,0,1,0.2), add = T)
+
+ps.dist = match_on(est.ps, z=labor24$trt)
+psm.out = matchit(trt ~ house_income_variable + number_household + age + job_difficulty +
+                    gender + edu + asset_income + trans_income + realtyasset_variable + finasset_variable,
+                  data = labor24, method= "optimal", distance = ps.dist)
+summary(psm.out)
+plot(summary(psm.out), var.order = "unmatched")
+
+
+# Optimal full matching
+
+# logit ~ bad
+m.full.out = matchit(trt ~ house_income_variable + number_household + age + job_difficulty +
+                       gender + edu + asset_income + trans_income + realtyasset_variable + finasset_variable,
+                     data= labor24, method = "full",
+                     distance = "glm", max.controls = 30)
+summary(m.full.out, un = F)
+plot(summary(m.full.out), var.order = "unmatched")
+
+# probit ~ good
+m.full.probit.out = matchit(trt ~ house_income_variable + number_household + age + job_difficulty +
+                              gender + edu + asset_income + trans_income + realtyasset_variable + finasset_variable,
+                            data= labor24, method = "full",
+                            distance = "glm", link = "probit")
+summary(m.full.probit.out, un = F)
+plot(summary(m.full.probit.out), var.order = "unmatched")
+
+## matching separate : 1:1
+m.exact.out = matchit(trt ~ house_income_variable + number_household + age + job_difficulty +
+                        gender + edu + asset_income + trans_income + realtyasset_variable + finasset_variable,
+                      data= labor24, method= "optimal",
+                      distance = "robust_mahalanobis", exact = ~gender)
+summary(m.exact.out, un = F)
+
+
+## matching separate ~ full
+m.exact.out = matchit(trt ~ house_income_variable + number_household + age + job_difficulty +
+                        gender + edu + asset_income + trans_income + realtyasset_variable + finasset_variable,
+                      data= labor24, method= "full",
+                      distance = "robust_mahalanobis", exact = ~gender)
+summary(m.exact.out, un = F)
+
+##Analysis Stage
+
+## analysis
+m.full = match.data(m.full.probit.out)
+subclass = as.numeric(m.full$subclass)
+
+m.full = match.data(m.exact.out)
+subclass = as.numeric(m.full$subclass)
+
+
+## outcome matrix
+y.fm = matrix(NA, nrow = length(unique(subclass)), ncol = max(table(subclass))) 
+treat1.vec = rep(NA, length(unique(subclass)))
+
+for(i in 1:length(unique(subclass))){ 
+  temp.indicator = (subclass == i) 
+  if(sum(m.full$trt[temp.indicator]) == 1){
+    y.fm[i,1] = m.full$house_workhour[temp.indicator==1 & m.full$trt==1]
+    y.fm[i,(2:sum(temp.indicator))] = m.full$house_workhour[temp.indicator==1 & m.full$trt ==0]
+   treat1.vec[i]= TRUE
+  }else{
+    y.fm[i,1] = m.full$house_workhour[temp.indicator==1 & m.full$trt==0] 
+    y.fm[i,(2:sum(temp.indicator))] = m.full$house_workhour[temp.indicator==1 & m.full$trt==1] 
+    treat1.vec[i]= FALSE
+  } 
+}
+
+m.exact = match.data(m.exact.out)
+y.pair = matrix(NA, nrow = length(unique(m.exact$subclass)), ncol = 2) 
+
+for(i in 1:length(unique(m.exact$subclass))){
+  y.pair[i,1] = m.exact$house_workhour[m.exact$subclass == i & m.exact$trt == 1]
+  y.pair[i,2] = m.exact$house_workhour[m.exact$subclass == i & m.exact$trt == 0]
+}
+
+senfm(y.fm, treated1 = treat1.vec)
+senfmCI(y.fm, treated1 = treat1.vec)
+
+senmw(y.pair)
+senmwCI(y.pair, one.sided = F)
+
+# Using an outcome model
+fit.full = lm(house_workhour ~ trt, data = m.full, weights = weights)
+coeftest(fit.full, vcov. = vcovCL, cluster = ~subclass)
+
+fit.full.with.cov = lm(house_workhour ~ trt + house_income_variable + number_household + age + job_difficulty +
+                         gender + edu + asset_income + trans_income + realtyasset_variable + finasset_variable,
+                       data = m.full, weights = weights)
+coeftest(fit.full.with.cov, vcov. = vcovCL, cluster = ~subclass)
+
+fit.pair = lm(house_workhour ~ trt, data = m.exact, weights = weights)
+coeftest(fit.pair, vcov. = vcovCL, cluster = ~subclass)
+
+boxplot(y.pair[,1] - y.pair[,2], main = "Treated-Minus-Control Differences")
+
