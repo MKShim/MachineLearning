@@ -1,0 +1,1107 @@
+rm(list=ls(all=TRUE))
+#setwd("/Users/minkyoung/Documents/Working/RA")
+
+# Packages
+#install.packages("caret", type="source")
+#install.packages('smotefamily',type='mac.binary')
+
+library(readxl)
+library(tidyverse)
+library(tidyr)
+library(dplyr)
+library(sqldf)
+library(reshape2)
+#library(Hmisc)
+library(collapse)
+library(magrittr)
+library(parallel)
+library(doParallel)
+library(caret)
+library(vctrs)
+library(ranger)
+library(randomForest)
+library(ROCR)
+library(glmnet)
+library(e1071)
+library(survminer)
+library(pROC)
+library(smotefamily)
+
+# Data proprecessing : (train : yr85 ~ 2015 : 30) (test : 5yrs) //  yr70
+
+WB_data<-read_excel("/Users/minkyoung/Dropbox/Data/Total_wide_panel.xlsx", sheet = 1)
+IMF_data<-read_excel("/Users/minkyoung/Dropbox/Data/Total_wide_panel.xlsx", sheet = 2)
+Crisis<-read_excel("/Users/minkyoung/Dropbox/Data/updated_crisis.xlsx", sheet = 1)
+
+fiscal_rules<-read_excel("/Users/minkyoung/Dropbox/Data/additional_data/fiscal_rules.xlsx")
+WEOApr<-read_excel("/Users/minkyoung/Dropbox/Data/additional_data/WEOApr2022all.xlsx", sheet = 1)
+
+countries_index<-read_excel("/Users/minkyoung/Dropbox/Data/countries_index.xlsx", sheet = 1)
+
+WB_panel <-read_excel("/Users/minkyoung/Dropbox/Data/Total_wide_panel.xlsx", sheet = 3)
+WB_panel <- WB_panel %>% select(-c("WB_Name1","IMF_Code1"))
+IMF_panel <-read_excel("/Users/minkyoung/Dropbox/Data/Total_wide_panel.xlsx", sheet = 4)
+#IMF_panel <- IMF_panel %>% select(-c("WB_Name2"))
+
+WEO_panel <-read_excel("/Users/minkyoung/Dropbox/Data/WEOApr_long01.xlsx", sheet = 1)
+WEO_data<-data.frame(WEO_panel)
+
+WB_IMF <-sqldf("select a.*, b.* from WB_panel a left join IMF_panel b on a.WB_code1 = b.WB_Code2 and a.year1 = b.year2")
+WB_IMF <- WB_IMF %>% select(-c("WB_Code2","year2"))
+WB_IMF_Crisis <-sqldf("select a.WB_code, a.start_year, a.prediction, a.market, b.* from Crisis a left join WB_IMF b on a.WB_code = b.WB_Code1 and a.start_year = b.year1")
+adding_panel <-read_excel("/Users/minkyoung/Dropbox/Data/adding_long01.xlsx", sheet = 1)
+		
+#WB_panel_cntr<-sqldf("select a.Dev_index, b.* from countries_index as a left join WB_panel as b on a.WB_code = b.WB_Code")
+#IMF_panel_cntr<-sqldf("select a.Dev_index, b.* from countries_index as a left join IMF_panel as b on a.IMF_code = b.IMF_Code")
+
+#head(WB_IMF,0)
+#head(WEO_data,0)
+
+### PICK variables
+
+from_WB_IMF<-sqldf("select WB_Code1 as ISO, year1 as year, WB_NODA , WB_PersonalTransfers,WB_ForeignDirectInvest,
+                   IMF_NetAcquistionFinanceAssets,WB_PortfolioInvestment,IMF_ExchangeRates_avg,IMF_ExchageRates_end,
+                   IMF_InternationalLiquidity_Reserv,WB_TotalReserves,IMF_GovernExpenditure_pGDP,IMF_GovernPrimaryExpenditure_pGDP,
+                   IMF_GrossOperatingBalance,IMF_GovernPrimaryBalance_pGDP,IMF_GovernmentSecurites_Bills,
+                   IMF_RealGDPgrowth,WB_PoliticalStability,WB_RegulatoryQuality,WB_PopulationAges,WB_UrbanPopulation,
+                   WB_AgeDependency,WB_PopulationDensity,IMF_Debt_pGDP,WB_DomesticCredit,WB_Externaldebt_PNG,WB_BroadMoney,WB_Externaldebt_Short,
+                   IMF_GrossPublicDebt_pGDP,IMF_InterestExpense_govern,WB_Disbursements,WB_DebtService,IMF_GDPperCapita_dollars,
+                   WB_GrossDomestricSavings,WB_MineralRents,WB_OilRents,WB_TotalNaturalResources,WB_Agriculture,WB_Externaldebt_total from WB_IMF
+                   where year1>=1980 and year1<=2015")
+
+from_WEO<-sqldf("select ISO, year, Current_account_bal_US,GDP_current_US,Volume_exports_gands,Volume_imports_gands,Gen_gov_rev_pofGDP,Population,
+                GDP_capita_constant_PPP,GDP_constant_percent,InflationAvg_index,InflationEnd_index
+                from WEO_data where year>=1980 and year<=2015")
+
+from_adding <-sqldf("select * from adding_panel where year>=1980 and year<=2015")   
+from_fiscal_rules <-sqldf("select ISO, year, fiscal_rules from fiscal_rules")
+
+#countries<-sqldf("select distinct ISO from fiscal_Crisis")
+OECD_countries<-sqldf("select distinct WB_code from Crisis where OECD=1")
+adv_countries<-sqldf("select distinct WB_code from Crisis where market in (1,2)")
+countries<-sqldf("select distinct WB_code from Crisis")
+
+OECD_WB_IMF<-sqldf("select a.WB_code, b.* from OECD_countries a left join from_WB_IMF b on a.WB_code = b.ISO")
+OECD_WB_IMF<-OECD_WB_IMF %>% select(-c("ISO")) 
+
+OECD_WEO<-sqldf("select b.* from OECD_countries a left join from_WEO b on a.WB_code = b.ISO")
+OECD_adding<-sqldf("select b.* from OECD_countries a left join from_adding b on a.WB_code = b.WB_code")
+
+OECD_base0<-sqldf("select a.*,b.* from OECD_WB_IMF a left join OECD_WEO b on a.WB_code=b.ISO and a.year=b.year")
+OECD_base0<-OECD_base0[,-40:-41]
+
+OECD_base1<-sqldf("select a.*, b.fiscal_rules from OECD_base0 a left join from_fiscal_rules b on a.WB_code=b.ISO and a.year=b.year")
+
+OECD_base<-sqldf("select a.*,b.* from OECD_base1 a left join OECD_adding b on a.WB_code=b.WB_code and a.year=b.year")
+OECD_base<-OECD_base[,-51:-52]
+
+OECD_base<-sqldf("select a.*, b.prediction, b.Conta_yearPassed,	b.Conta_HistoricalFreq,	b.Conta_numberCrisis, b.Fertilityrate,	b.GeneralGovGrossdebt,	b.GovEffectiveness,
+                 b.yrcurnt, b.legelec, b.exelec, b.GrossNationalSavings, b.ImpliedPPP_conversionRate, b.TotalInvestment, b.UnemploymentRate, b.CentralGov_Debt, 
+                 b.HouseholdDebt_PofGDP, b.HouseholdDebt_loans_PofGDP, b.NonfinCorpDebt_loans_PofGDP, b.PrivateDebt_loans_PofGDP 
+                 from OECD_base a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year")
+
+adv_WB_IMF<-sqldf("select a.WB_code, b.* from adv_countries a left join from_WB_IMF b on a.WB_code = b.ISO")
+adv_WB_IMF<-adv_WB_IMF %>% select(-c("ISO")) 
+
+adv_WEO<-sqldf("select b.* from adv_countries a left join from_WEO b on a.WB_code = b.ISO")
+adv_adding<-sqldf("select b.* from adv_countries a left join from_adding b on a.WB_code = b.WB_code")
+
+adv_base0<-sqldf("select a.*,b.* from adv_WB_IMF a left join OECD_WEO b on a.WB_code=b.ISO and a.year=b.year")
+adv_base0<-adv_base0[,-40:-41]
+
+adv_base1<-sqldf("select a.*, b.fiscal_rules from adv_base0 a left join from_fiscal_rules b on a.WB_code=b.ISO and a.year=b.year")
+
+adv_base<-sqldf("select a.*,b.* from adv_base1 a left join adv_adding b on a.WB_code=b.WB_code and a.year=b.year")
+adv_base<-adv_base[,-51:-52]
+adv_base<-sqldf("select a.*, b.prediction, b.Conta_yearPassed,	b.Conta_HistoricalFreq,	b.Conta_numberCrisis, b.Fertilityrate,	b.GeneralGovGrossdebt,	b.GovEffectiveness,
+                b.yrcurnt, b.legelec, b.exelec, b.GrossNationalSavings, b.ImpliedPPP_conversionRate, b.TotalInvestment, b.UnemploymentRate, b.CentralGov_Debt, 
+                b.HouseholdDebt_PofGDP, b.HouseholdDebt_loans_PofGDP, b.NonfinCorpDebt_loans_PofGDP, b.PrivateDebt_loans_PofGDP 
+                from adv_base a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year")
+
+
+### INDEX table : Crisis
+# WB_Externaldebt_PPG : OECD , EU 국가 데이터 없음
+# WB_TotalReserveofImports : OECD, EU 국가 데이터 없음
+## n ~ obs 너무 작다
+
+OECD_variables<-sqldf("select WB_Code, year, prediction, Conta_yearPassed,Conta_HistoricalFreq,Conta_numberCrisis,Fertilityrate,	GeneralGovGrossdebt,
+                      yrcurnt, legelec, exelec, GrossNationalSavings, ImpliedPPP_conversionRate, TotalInvestment, UnemploymentRate, CentralGov_Debt, 
+                      HouseholdDebt_PofGDP, HouseholdDebt_loans_PofGDP, NonfinCorpDebt_loans_PofGDP, PrivateDebt_loans_PofGDP, 
+                      WB_NODA, Current_account_bal_US/GDP_current_US as Current_account_bal_pGDP, 
+                      Volume_exports_gands/GDP_current_US as exports_gands_pGDP, Volume_imports_gands/GDP_current_US as imports_gands_pGDP,
+                      WB_PersonalTransfers, WB_ForeignDirectInvest, IMF_NetAcquistionFinanceAssets, WB_PortfolioInvestment, IMF_ExchangeRates_avg, IMF_ExchageRates_end,
+                      -100*(1 - IMF_InternationalLiquidity_Reserv/lag(IMF_InternationalLiquidity_Reserv) OVER (order by WB_Code, year)) as Pchange_InternationLiquidity_Rev, 
+                      WB_TotalReserves, IMF_GovernExpenditure_pGDP, IMF_GovernPrimaryExpenditure_pGDP, IMF_GrossOperatingBalance,
+                      IMF_GovernPrimaryBalance_pGDP, Gen_gov_rev_pofGDP, IMF_GovernmentSecurites_Bills, IMF_RealGDPgrowth, WB_PoliticalStability, WB_RegulatoryQuality,
+                      WB_PopulationAges, -100*(1 - WB_PopulationAges/lag(WB_PopulationAges) OVER (order by WB_Code, year)) as Pchange_WB_PopulationAges,
+                      WB_UrbanPopulation, WB_AgeDependency, WB_PopulationDensity, IMF_Debt_pGDP, WB_DomesticCredit, WB_Externaldebt_PNG/Volume_exports_gands as Externaldebt_pExport,
+                      WB_BroadMoney, IMF_GrossPublicDebt_pGDP, IMF_GrossPublicDebt_pGDP/Gen_gov_rev_pofGDP as IMF_GrossPublicDebt_pRev, WB_Externaldebt_Short/GDP_current_US as WB_Externaldebt_Short_pGDP,
+                      WB_Externaldebt_Short/WB_TotalReserves as WB_Externaldebt_Short_pReserves, IMF_InterestExpense_govern/GDP_current_US as InterestExpense_gov_pGDP, 
+                      WB_Disbursements/GDP_current_US as Disbursements_pGDP, WB_Disbursements/WB_TotalReserves as Disbursements_pRev,
+                      WB_DebtService/GDP_current_US as DebtService_pGDP, WB_DebtService/Volume_exports_gands as DebtService_pExport, WB_DebtService/WB_TotalReserves as DebtService_pRev,
+                      -100*(1 - IMF_GDPperCapita_dollars/lag(IMF_GDPperCapita_dollars) OVER (order by WB_Code, year)) as Pchange_GDPperCapita, GDP_constant_percent
+                      -100*(1 - GDP_current_US/lag(GDP_current_US) OVER (order by WB_Code, year)) as Pchange_GDP_current_US,
+                      -100*(1 - InflationAvg_index/lag(InflationAvg_index) OVER (order by WB_Code, year)) as Pchange_InflationAvg_index,
+                      -100*(1 - InflationEnd_index/lag(InflationEnd_index) OVER (order by WB_Code, year)) as Pchange_InflationEnd_index,
+                      WB_GrossDomestricSavings, WB_MineralRents, WB_OilRents, WB_TotalNaturalResources, WB_Agriculture, WB_Externaldebt_total/GDP_current_US as Externaldebt_total_GDP,
+                      fiscal_rules, InflationAvg_index, GDP_capita_constant_PPP, GDP_current_US from OECD_base order by WB_Code, year ")
+#IMF_ExchageRates_end
+
+OECD_variables_dropped<-sqldf("select OECD_base.WB_Code, OECD_base.year, prediction, Conta_yearPassed,Conta_HistoricalFreq,Conta_numberCrisis, Fertilityrate,	GeneralGovGrossdebt,
+                      yrcurnt, legelec, exelec, GrossNationalSavings, ImpliedPPP_conversionRate, TotalInvestment, UnemploymentRate, CentralGov_Debt, 
+                      HouseholdDebt_PofGDP, HouseholdDebt_loans_PofGDP, NonfinCorpDebt_loans_PofGDP, PrivateDebt_loans_PofGDP, 
+                      WB_NODA, Current_account_bal_US/GDP_current_US as Current_account_bal_pGDP, 
+                      Volume_exports_gands/GDP_current_US as exports_gands_pGDP, Volume_imports_gands/GDP_current_US as imports_gands_pGDP,
+                      IMF_ExchangeRates_avg, IMF_ExchageRates_end,
+                      -100*(1 - IMF_InternationalLiquidity_Reserv/lag(IMF_InternationalLiquidity_Reserv) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_InternationLiquidity_Rev, 
+                      IMF_GovernExpenditure_pGDP, IMF_GovernPrimaryExpenditure_pGDP, IMF_GrossOperatingBalance,
+                      IMF_GovernPrimaryBalance_pGDP, Gen_gov_rev_pofGDP, IMF_RealGDPgrowth, 
+                      WB_PopulationAges, -100*(1 - WB_PopulationAges/lag(WB_PopulationAges) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_WB_PopulationAges,
+                      WB_UrbanPopulation, WB_AgeDependency, WB_PopulationDensity, IMF_Debt_pGDP, WB_DomesticCredit,
+                      WB_BroadMoney, IMF_GrossPublicDebt_pGDP, IMF_GrossPublicDebt_pGDP/Gen_gov_rev_pofGDP as IMF_GrossPublicDebt_pRev,
+                      -100*(1 - IMF_GDPperCapita_dollars/lag(IMF_GDPperCapita_dollars) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_GDPperCapita, GDP_constant_percent
+                      -100*(1 - GDP_current_US/lag(GDP_current_US) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_GDP_current_US,
+                      -100*(1 - InflationAvg_index/lag(InflationAvg_index) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_InflationAvg_index,
+                      -100*(1 - InflationEnd_index/lag(InflationEnd_index) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_InflationEnd_index,
+                      WB_GrossDomestricSavings, WB_MineralRents, WB_OilRents, WB_TotalNaturalResources, WB_Agriculture,
+                    fiscal_rules, InflationAvg_index, GDP_capita_constant_PPP,
+                      log(WB_PopulationAges/b.US_pop) as relative_pop, GDP_capita_constant_PPP/b.US_realGDPcap as relative_real, log(GDP_capita_constant_PPP/b.US_nomialGDP) as relative_nomial
+                      from OECD_base left join (select a.WB_Code, a.year, a.WB_PopulationAges as US_pop, a.GDP_capita_constant_PPP as US_realGDPcap, a.GDP_current_US as US_nomialGDP from OECD_variables a where a.WB_Code = 'USA') b on OECD_base.year = b.year
+                      where OECD_base.year>=1985 and OECD_base.year<=2015 order by OECD_base.WB_Code, OECD_base.year")
+
+#write.csv(OECD_variables_dropped,"/Users/minkyoung/Dropbox/Data/OECD_variables_dropped.csv", row.names = FALSE)
+
+# replace NA with the median value of each year
+OECD_median <- OECD_variables_dropped %>%
+  group_by(year) %>%
+  summarise_at(vars(-WB_code,-prediction), funs(median(., na.rm=TRUE)))
+
+match<-match(OECD_variables_dropped$year,OECD_median$year)
+
+for(i in 4:ncol(OECD_variables_dropped)) {
+  OECD_variables_dropped[i][is.na(OECD_variables_dropped[i])] <- OECD_median[[i-2]][match[which(is.na(OECD_variables_dropped[i]))]]
+}
+
+##[[ is used for lists, [ for arrays and $ for getting a single column or element. 
+
+# Return One of Column of data.frame
+str(OECD_variables_dropped[1])
+str(OECD_variables_dropped['WB_code'])
+
+# Return One list
+str(OECD_variables_dropped[,1])
+str(OECD_variables_dropped[[1]])
+str(OECD_variables_dropped[['WB_code']])
+str(OECD_variables_dropped$WB_code)
+
+# Return Multiple columns/variables
+str(OECD_variables_dropped[,c(1,2)]) # 2 variables of dataframe
+str(OECD_variables_dropped[,1:2]) # SAME
+
+str(OECD_variables_dropped[[1,3]]) # (1,3) element
+str(OECD_variables_dropped[[c(1,3)]]) # 1st column 3rd element
+
+str(OECD_variables_dropped[[c('WB_code','year')]]) # error
+str(c(OECD_variables_dropped$WB_code, OECD_variables_dropped$year)) # long list contain 2 variables ; chr [1:1736]
+
+
+adv_variables<-sqldf("select WB_Code, year, prediction, Conta_yearPassed,Conta_HistoricalFreq,Conta_numberCrisis,Fertilityrate,	GeneralGovGrossdebt,
+                      yrcurnt, legelec, exelec, GrossNationalSavings, ImpliedPPP_conversionRate, TotalInvestment, UnemploymentRate, CentralGov_Debt, 
+                      HouseholdDebt_PofGDP, HouseholdDebt_loans_PofGDP, NonfinCorpDebt_loans_PofGDP, PrivateDebt_loans_PofGDP, 
+                      WB_NODA, Current_account_bal_US/GDP_current_US as Current_account_bal_pGDP, 
+                      Volume_exports_gands/GDP_current_US as exports_gands_pGDP, Volume_imports_gands/GDP_current_US as imports_gands_pGDP,
+                      WB_PersonalTransfers, WB_ForeignDirectInvest, IMF_NetAcquistionFinanceAssets, WB_PortfolioInvestment, IMF_ExchangeRates_avg, IMF_ExchageRates_end,
+                      -100*(1 - IMF_InternationalLiquidity_Reserv/lag(IMF_InternationalLiquidity_Reserv) OVER (order by WB_Code, year)) as Pchange_InternationLiquidity_Rev, 
+                      WB_TotalReserves, IMF_GovernExpenditure_pGDP, IMF_GovernPrimaryExpenditure_pGDP, IMF_GrossOperatingBalance,
+                      IMF_GovernPrimaryBalance_pGDP, Gen_gov_rev_pofGDP, IMF_GovernmentSecurites_Bills, IMF_RealGDPgrowth, WB_PoliticalStability, WB_RegulatoryQuality,
+                      WB_PopulationAges, -100*(1 - WB_PopulationAges/lag(WB_PopulationAges) OVER (order by WB_Code, year)) as Pchange_WB_PopulationAges,
+                      WB_UrbanPopulation, WB_AgeDependency, WB_PopulationDensity, IMF_Debt_pGDP, WB_DomesticCredit, WB_Externaldebt_PNG/Volume_exports_gands as Externaldebt_pExport,
+                      WB_BroadMoney, IMF_GrossPublicDebt_pGDP, IMF_GrossPublicDebt_pGDP/Gen_gov_rev_pofGDP as IMF_GrossPublicDebt_pRev, WB_Externaldebt_Short/GDP_current_US as WB_Externaldebt_Short_pGDP,
+                      WB_Externaldebt_Short/WB_TotalReserves as WB_Externaldebt_Short_pReserves, IMF_InterestExpense_govern/GDP_current_US as InterestExpense_gov_pGDP, 
+                      WB_Disbursements/GDP_current_US as Disbursements_pGDP, WB_Disbursements/WB_TotalReserves as Disbursements_pRev,
+                      WB_DebtService/GDP_current_US as DebtService_pGDP, WB_DebtService/Volume_exports_gands as DebtService_pExport, WB_DebtService/WB_TotalReserves as DebtService_pRev,
+                      -100*(1 - IMF_GDPperCapita_dollars/lag(IMF_GDPperCapita_dollars) OVER (order by WB_Code, year)) as Pchange_GDPperCapita, GDP_constant_percent
+                      -100*(1 - GDP_current_US/lag(GDP_current_US) OVER (order by WB_Code, year)) as Pchange_GDP_current_US,
+                      -100*(1 - InflationAvg_index/lag(InflationAvg_index) OVER (order by WB_Code, year)) as Pchange_InflationAvg_index,
+                      -100*(1 - InflationEnd_index/lag(InflationEnd_index) OVER (order by WB_Code, year)) as Pchange_InflationEnd_index,
+                      WB_GrossDomestricSavings, WB_MineralRents, WB_OilRents, WB_TotalNaturalResources, WB_Agriculture, WB_Externaldebt_total/GDP_current_US as Externaldebt_total_GDP,
+                      fiscal_rules, InflationAvg_index, GDP_capita_constant_PPP, GDP_current_US from adv_base order by WB_Code, year")
+
+adv_variables_dropped<-sqldf("select adv_base.WB_Code, adv_base.year, prediction, Conta_yearPassed,Conta_HistoricalFreq,Conta_numberCrisis,Fertilityrate,	GeneralGovGrossdebt,
+                      yrcurnt, legelec, exelec, GrossNationalSavings, ImpliedPPP_conversionRate, TotalInvestment, UnemploymentRate, CentralGov_Debt, 
+                      HouseholdDebt_PofGDP, HouseholdDebt_loans_PofGDP, NonfinCorpDebt_loans_PofGDP, PrivateDebt_loans_PofGDP, 
+                      WB_NODA, Current_account_bal_US/GDP_current_US as Current_account_bal_pGDP, 
+                      Volume_exports_gands/GDP_current_US as exports_gands_pGDP, Volume_imports_gands/GDP_current_US as imports_gands_pGDP,
+                      IMF_ExchangeRates_avg, IMF_ExchageRates_end,
+                      -100*(1 - IMF_InternationalLiquidity_Reserv/lag(IMF_InternationalLiquidity_Reserv) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_InternationLiquidity_Rev, 
+                      IMF_GovernExpenditure_pGDP, IMF_GovernPrimaryExpenditure_pGDP, IMF_GrossOperatingBalance,
+                      IMF_GovernPrimaryBalance_pGDP, Gen_gov_rev_pofGDP, IMF_RealGDPgrowth, 
+                      WB_PopulationAges, -100*(1 - WB_PopulationAges/lag(WB_PopulationAges) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_WB_PopulationAges,
+                      WB_UrbanPopulation, WB_AgeDependency, WB_PopulationDensity, IMF_Debt_pGDP, WB_DomesticCredit,
+                      WB_BroadMoney, IMF_GrossPublicDebt_pGDP, IMF_GrossPublicDebt_pGDP/Gen_gov_rev_pofGDP as IMF_GrossPublicDebt_pRev,
+                      -100*(1 - IMF_GDPperCapita_dollars/lag(IMF_GDPperCapita_dollars) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_GDPperCapita, GDP_constant_percent
+                      -100*(1 - GDP_current_US/lag(GDP_current_US) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_GDP_current_US,
+                      -100*(1 - InflationAvg_index/lag(InflationAvg_index) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_InflationAvg_index,
+                      -100*(1 - InflationEnd_index/lag(InflationEnd_index) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_InflationEnd_index,
+                      WB_GrossDomestricSavings, WB_MineralRents, WB_OilRents, WB_TotalNaturalResources, WB_Agriculture,
+                    fiscal_rules, InflationAvg_index, GDP_capita_constant_PPP,
+                      log(WB_PopulationAges/b.US_pop) as relative_pop, GDP_capita_constant_PPP/b.US_realGDPcap as relative_real, log(GDP_capita_constant_PPP/b.US_nomialGDP) as relative_nomial
+                      from adv_base left join (select a.WB_Code, a.year, a.WB_PopulationAges as US_pop, a.GDP_capita_constant_PPP as US_realGDPcap, a.GDP_current_US as US_nomialGDP from adv_variables a where a.WB_Code = 'USA') b on adv_base.year = b.year
+                      where adv_base.year>=1985 and adv_base.year<=2015 order by adv_base.WB_Code, adv_base.year")
+
+# replace NA with the median value of each year
+adv_median <- adv_variables_dropped%>%
+  group_by(year) %>%
+  summarise_at(vars(-WB_code,-prediction), funs(median(., na.rm=TRUE)))
+
+match<-match(adv_variables_dropped$year,adv_median$year)
+
+for(i in 4:ncol(adv_variables_dropped)) {
+  adv_variables_dropped[i][is.na(adv_variables_dropped[i])] <- adv_median[[i-2]][match[which(is.na(adv_variables_dropped[i]))]]
+}
+
+# factor
+OECD_variables_dropped$prediction = as.factor(OECD_variables_dropped$prediction)
+levels(OECD_variables_dropped$prediction) <- make.names(levels(factor(OECD_variables_dropped$prediction)))
+#OECD_variables_dropped <- OECD_variables_dropped %>% select(-c("WB_code"))
+
+adv_variables_dropped$prediction = as.factor(adv_variables_dropped$prediction)
+#levels(adv_variables_dropped$prediction) <- make.names(levels(factor(adv_variables_dropped$prediction)))
+#adv_variables_dropped <- adv_variables_dropped %>% select(-c("WB_code"))
+
+# divide samples
+#inTrain <- createDataPartition(y = OECD_variables_dropped$prediction, p = 0.75, list = FALSE)
+#OECD_training <- OECD_variables_dropped[inTrain$train, ]
+#OECD_testing <- OECD_variables_dropped[-inTrain, ]
+
+timeSlice <- createTimeSlices(1:nrow(OECD_variables_dropped), initialWindow=22, horizon =9, fixedWindow = TRUE, skip = 30)
+
+#summary(timeSlice)
+
+#head(timeSlice$train,2)
+#head(timeSlice$test,2)
+#length(timeSlice$train)
+
+for(slice_no in 1:1){
+  OECD_training <- OECD_variables_dropped[timeSlice$train[[slice_no]],]
+  OECD_testing <- OECD_variables_dropped[timeSlice$test[[slice_no]],] 
+}
+
+for(slice_no in 2:length(timeSlice$train)){
+  OECD_training <- rbind(OECD_training,OECD_variables_dropped[timeSlice$train[[slice_no]],])
+  OECD_testing <- rbind(OECD_testing,OECD_variables_dropped[timeSlice$test[[slice_no]],])  
+}
+
+OECD_training[,-1:-3]<-scale(OECD_training[,-1:-3])
+OECD_testing[,-1:-3]<-scale(OECD_testing[,-1:-3])
+
+timeSlice2 <- createTimeSlices(1:nrow(OECD_variables_dropped), initialWindow=9, horizon =22, fixedWindow = TRUE, skip = 30)
+
+head(OECD_training[,c(-1,-3)])
+#head(timeSlice2$test)
+
+for(slice_no in 1:1){
+  OECD_training2 <- OECD_variables_dropped[timeSlice2$test[[slice_no]],]
+  OECD_testing2 <- OECD_variables_dropped[timeSlice2$train[[slice_no]],] 
+}
+
+for(slice_no in 2:length(timeSlice2$test)){
+  OECD_training2 <- rbind(OECD_training2,OECD_variables_dropped[timeSlice2$test[[slice_no]],])
+  OECD_testing2 <- rbind(OECD_testing2,OECD_variables_dropped[timeSlice2$train[[slice_no]],])  
+}
+
+OECD_training2[,-1:-3]<-scale(OECD_training2[,-1:-3])
+OECD_testing2[,-1:-3]<-scale(OECD_testing2[,-1:-3])
+
+Aglm <- glm(OECD_training2$prediction ~ OECD_training2[,-1:-3],family = gaussian, data = OECD_training2)
+
+str(OECD_training2[,-1:-3])
+
+# ADVAN countries
+
+adv_timeSlice <- createTimeSlices(1:nrow(adv_variables_dropped), initialWindow=22, horizon =9, fixedWindow = TRUE, skip = 30)
+
+for(slice_no in 1:1){
+  adv_training <- adv_variables_dropped[adv_timeSlice$train[[slice_no]],]
+  adv_testing <- adv_variables_dropped[adv_timeSlice$test[[slice_no]],] 
+}
+
+for(slice_no in 2:length(adv_timeSlice$train)){
+  adv_training <- rbind(adv_training,adv_variables_dropped[adv_timeSlice$train[[slice_no]],])
+  adv_testing <- rbind(adv_testing,adv_variables_dropped[adv_timeSlice$test[[slice_no]],])  
+}
+
+adv_training[,-1:-3]<-scale(adv_training[,-1:-3])
+adv_testing[,-1:-3]<-scale(adv_testing[,-1:-3])
+
+adv_timeSlice2 <- createTimeSlices(1:nrow(adv_variables_dropped), initialWindow=9, horizon =22, fixedWindow = TRUE, skip = 30)
+
+for(slice_no in 1:1){
+  adv_training2 <- adv_variables_dropped[adv_timeSlice2$test[[slice_no]],]
+  adv_testing2 <- adv_variables_dropped[adv_timeSlice2$train[[slice_no]],] 
+}
+
+for(slice_no in 2:length(adv_timeSlice2$test)){
+  adv_training2 <- rbind(adv_training2,adv_variables_dropped[adv_timeSlice2$test[[slice_no]],])
+  adv_testing2 <- rbind(adv_testing2,adv_variables_dropped[adv_timeSlice2$train[[slice_no]],])  
+}
+
+adv_training2[,-1:-3]<-scale(adv_training2[,-1:-3])
+adv_testing2[,-1:-3]<-scale(adv_testing2[,-1:-3])
+
+
+# drop obs to control the crisis bias
+
+OECD_training<-sqldf("select a.* from OECD_training a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+OECD_testing<-sqldf("select a.* from OECD_testing a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+
+OECD_training2<-sqldf("select a.* from OECD_training2 a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+OECD_testing2<-sqldf("select a.* from OECD_testing2 a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+
+adv_training<-sqldf("select a.* from adv_training a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+adv_testing<-sqldf("select a.* from adv_testing a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+
+adv_training2<-sqldf("select a.* from adv_training2 a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+adv_testing2<-sqldf("select a.* from adv_testing2 a left join Crisis b on a.WB_code=b.WB_code and a.year=b.start_year where b.drop_bias=0")
+
+
+## UPSAMPLING ~ SMOTE
+
+resample_OECD_training <-SMOTE(OECD_training[,c(-1,-3)], OECD_training$prediction, dup_size=100, K=5)
+resample_OECD_training$data<-rename(resample_OECD_training$data,prediction=class)
+resample_OECD_training<-resample_OECD_training$data
+#str(resample_OECD_training) # 3269 obs. of  57 variables:
+#str(OECD_training) # 469 obs. of  58 variables: (616->469)
+
+resample_OECD_testing <-SMOTE(OECD_testing[,c(-1,-3)], OECD_testing$prediction, dup_size=100, K=5)
+resample_OECD_testing$data<-rename(resample_OECD_testing$data,prediction=class)
+resample_OECD_testing<-resample_OECD_testing$data
+#str(resample_OECD_testing) # 1853 obs. of  57 variables:
+#str(OECD_testing) # 153 obs. of  58 variables: (252->153)
+
+resample_OECD_training2 <-SMOTE(OECD_training2[,c(-1,-3)], OECD_training2$prediction, dup_size=100, K=5)
+resample_OECD_training2$data<-rename(resample_OECD_training2$data,prediction=class)
+resample_OECD_training2<-resample_OECD_training2$data
+#str(resample_OECD_training2) # 3555 obs. of  57 variables:
+#str(OECD_training) # 469 obs. of  58 variables: (616->469)
+
+resample_OECD_testing2 <-SMOTE(OECD_testing2[,c(-1,-3)], OECD_testing2$prediction, dup_size=100, K=5)
+resample_OECD_testing2$data<-rename(resample_OECD_testing2$data,prediction=class)
+resample_OECD_testing2<-resample_OECD_testing2$data
+#str(resample_OECD_testing2) # 1567 obs. of  57 variables:
+#str(OECD_testing) # 153 obs. of  58 variables: (252->153)
+
+
+resample_adv_training <-SMOTE(adv_training[,c(-1,-3)], adv_training$prediction, dup_size=80, K=5)
+resample_adv_training$data<-rename(resample_adv_training$data,prediction=class)
+resample_adv_training<-resample_adv_training$data
+str(resample_adv_training) # 7822 obs. of  57 variables:
+#str(adv_training) # 1022 obs. of  58 variables:
+
+resample_adv_testing <-SMOTE(adv_testing[,c(-1,-3)], adv_testing$prediction, dup_size=80, K=5)
+resample_adv_testing$data<-rename(resample_adv_testing$data,prediction=class)
+resample_adv_testing<-resample_adv_testing$data
+#str(resample_adv_testing) # 3650 obs. of  57 variables:
+#str(adv_testing) # 450 obs. of  58 variables:
+
+resample_adv_training2 <-SMOTE(adv_training2[,c(-1,-3)], adv_training2$prediction, dup_size=80, K=5)
+resample_adv_training2$data<-rename(resample_adv_training2$data,prediction=class)
+resample_adv_training2<-resample_adv_training2$data
+#str(resample_adv_training2) # 7486 obs. of  57 variables:
+#str(adv_training) # 1022 obs. of  58 variables:
+
+resample_adv_testing2 <-SMOTE(adv_testing2[,c(-1,-3)], adv_testing2$prediction, dup_size=80, K=5)
+resample_adv_testing2$data<-rename(resample_adv_testing2$data,prediction=class)
+resample_adv_testing2<-resample_adv_testing2$data
+#str(resample_adv_testing2) # 3986 obs. of  57 variables:
+#str(adv_testing) # 450 obs. of  58 variables:
+
+
+OECD_training <- OECD_training %>% select(-c("WB_code"))
+OECD_testing <- OECD_testing %>% select(-c("WB_code"))
+OECD_training2 <- OECD_training2 %>% select(-c("WB_code"))
+OECD_testing2 <- OECD_testing2 %>% select(-c("WB_code"))
+
+adv_training <- adv_training %>% select(-c("WB_code"))
+adv_testing <- adv_testing %>% select(-c("WB_code"))
+adv_training2 <- adv_training2 %>% select(-c("WB_code"))
+adv_testing2 <- adv_testing2 %>% select(-c("WB_code"))
+
+#write.csv(OECD_variables,"/Users/minkyoung/Dropbox/Data/OECD_variables.csv", row.names = FALSE)
+
+## 최종으로 남은 변수 엑셀에 리스트 업데이트 & lag variable 추가
+
+#summary(OECD_variables_dropped)
+
+## RandomForest Code : Using caret package
+
+set.seed(0120)
+cl <- makeCluster(detectCores()-1, setup_timeout = 0.5) 
+registerDoParallel(cl)
+
+# clusterEvalQ(cl, .libPaths("D:/Rlibrary"))
+
+fitCtrl <- trainControl(method = "timeslice",
+                        initialWindow = 15,
+                        horizon = 5,
+                        fixedWindow = FALSE,
+                        classProbs = TRUE,
+                        allowParallel = TRUE)
+
+tuneLength.num <- 5
+
+fitCtrl <- trainControl(method = "repeatedcv",
+                        number = 5,
+                        repeats = 3,
+                        summaryFunction=twoClassSummary,
+#                        ## Estimate class probabilities
+                        classProbs = TRUE,
+                        #savePredictions = TRUE,
+                        ## Search "grid" or "random"
+                        search = "random",
+                        ## Use cluster
+                        allowParallel = TRUE)
+
+rfGrid <- expand.grid(mtry=c(1:5),
+                      min.node.size=c(1,5),
+                      splitrule=c("gini","extratrees"))
+
+## OECD data
+OECE_rf.res <- train(prediction ~ .,
+                data=OECD_variables_dropped,
+                method="ranger",
+                trControl=fitCtrl,
+                tuneGrid=rfGrid,
+                #tuneLength=10,
+                metric="ROC",
+                verbose=FALSE)
+
+OECE_rf.res
+plot(OECE_rf.res)
+# The final values used for the model were mtry = 5, splitrule = extratrees and min.node.size = 1.
+
+OECE_predictions <- predict(OECE_rf.res, newdata = OECD_variables_dropped)
+
+table(OECE_predictions)
+table(OECD_variables_dropped$prediction)
+
+confusionMatrix(OECE_predictions, OECD_variables_dropped$prediction)
+
+### OECD
+
+OECD_variables_dropped$prediction = as.factor(OECD_variables_dropped$prediction)
+#levels(OECD_variables_dropped$prediction) <- make.names(levels(factor(OECD_variables_dropped$prediction)))
+
+# metric : RMSE & Rsquared for regression
+# Accuracy & Kappa for classification
+
+str(OECD_training[,-2])
+str(OECD_training)
+
+OECD_rf.res <- train(OECD_training[,-2],OECD_training$prediction,
+                method="ranger",
+                trControl=fitCtrl,
+                tuneGrid=rfGrid,
+                #tuneLength=10,
+                #metric="Kappa",
+                verbose=FALSE)
+OECD_rf.res
+
+OECD_rf.res2 <- train(OECD_training2[,-2],OECD_training2$prediction,
+                   method="ranger",
+                   trControl=fitCtrl,
+                   tuneGrid=rfGrid,
+                   #tuneLength=10,
+                   metric="ROC",
+                   verbose=FALSE)
+
+OECD_rf.res2
+
+# The final values used for the model were mtry = 5, splitrule = extratrees and min.node.size = 1
+
+predictions01 <- predict(OECD_rf.res, newdata = OECD_training)
+predictions02 <- predict(OECD_rf.res, newdata = OECD_testing)
+
+OECD_testing$prediction = as.factor(OECD_testing$prediction)
+
+confusionMatrix(predictions01, OECD_training$prediction)
+confusionMatrix(predictions02, OECD_testing$prediction)
+
+predictions03 <- predict(OECD_rf.res2, newdata = OECD_training2)
+predictions04 <- predict(OECD_rf.res2, newdata = OECD_testing2)
+
+confusionMatrix(predictions03, OECD_training2$prediction)
+confusionMatrix(predictions04, OECD_testing2$prediction)
+
+# AUC score
+OECD_RF1.prob <- predict(OECD_rf.res, OECD_testing, type="prob")[,"X1"]
+OECD_RF1.roc <- roc(OECD_testing$prediction, OECD_RF1.prob) # Draw ROC curve.
+plot(OECD_RF1.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(OECD_RF1.roc)
+
+OECD_RF2.prob <- predict(OECD_rf.res2, OECD_testing2, type="prob")[,"X1"]
+OECD_RF2.roc <- roc(OECD_testing$prediction, OECD_RF2.prob) # Draw ROC curve.
+plot(OECD_RF2.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(OECD_RF2.roc)
+
+table(OECD_training$prediction)
+table(OECD_testing$prediction)
+
+### ADV
+
+adv_rf.res <- train(prediction ~ .,
+                   data=adv_training,
+                   method="ranger",
+                   trControl=fitCtrl,
+                   tuneGrid=rfGrid,
+                   #tuneLength=10,
+                   metric="ROC",
+                   verbose=FALSE)
+
+adv_rf.res
+
+
+adv_rf.res2 <- train(prediction ~ .,
+                    data=adv_training2,
+                    method="ranger",
+                    trControl=fitCtrl,
+                    tuneGrid=rfGrid,
+                    #tuneLength=10,
+                    metric="ROC",
+                    verbose=FALSE)
+
+adv_rf.res2
+
+# The final values used for the model were mtry = 5, splitrule = extratrees and min.node.size = 1
+
+adv_predictions01 <- predict(adv_rf.res, newdata = adv_training)
+adv_predictions02 <- predict(adv_rf.res2, newdata = adv_testing)
+
+confusionMatrix(adv_predictions01, adv_training$prediction)
+confusionMatrix(adv_predictions02, adv_testing$prediction)
+
+adv_predictions03 <- predict(adv_train.res2, newdata = adv_training2)
+adv_predictions04 <- predict(adv_train.res2, newdata = adv_testing2)
+
+confusionMatrix(adv_predictions03, adv_training2$prediction)
+confusionMatrix(adv_predictions04, adv_testing2$prediction)
+
+
+# AUC score
+adv_RF1.prob <- predict(adv_rf.res, OECD_testing, type="prob")[,"X1"]
+adv_RF1.roc <- roc(OECD_testing$prediction, adv_RF1.prob) # Draw ROC curve.
+plot(adv_RF1.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(adv_RF1.roc)
+
+adv_RF2.prob <- predict(adv_rf.res2, OECD_testing2, type="prob")[,"X1"]
+adv_RF2.roc <- roc(OECD_testing$prediction, adv_RF2.prob) # Draw ROC curve.
+plot(adv_RF2.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(adv_RF2.roc)
+
+table(adv_training$prediction)
+table(adv_testing$prediction)
+
+table(predictions02)
+
+## RandomForest Code : Using randomForest package
+## Using proximity matrix ~ giving the information about distance/metric btw data.
+
+############ 
+
+OECD_rf_fit02 <- randomForest(OECD_variables_dropped$prediction~., data = scale(OECD_variables_dropped[,-(0:3)]), importance=TRUE, proximity=TRUE )
+OECD_rf_fit02
+#summary(OECD_variables_dropped[,-(0:2)])
+round(importance(OECD_rf_fit02), 2)
+
+# type : either 1 or 2, specifying the type of importance measure
+#(1=mean decrease in accuracy, 2=mean decrease in node impurity).
+
+randomForest::importance(OECD_rf_fit02, type=2)
+randomForest::varImpPlot(OECD_rf_fit02)
+print(OECD_rf_fit02)
+
+OECD_rf_fit02 <- randomForest(x = scale(OECD_variables_dropped[,-(0:3)]), y = NULL, mtry=15, importance = TRUE )
+#OECD_rf_fit02 = cutree(OECD_rf_fit02, k=2)
+
+# type : either 1 or 2, specifying the type of importance measure
+#(1=mean decrease in accuracy, 2=mean decrease in node impurity).
+
+randomForest::importance(OECD_rf_fit02, type=2)
+randomForest::varImpPlot(OECD_rf_fit02)
+print(OECD_rf_fit02)
+
+head(OECD_variables_dropped[,-(0:3)],0)
+
+head(OECD_training,1)
+
+## Logit ~ OECD
+
+OECD_Logitmodel <- glm(prediction ~.,family=binomial(link='logit'), data=OECD_training)
+summary(OECD_Logitmodel)
+
+#OECD_Logitmodel$y
+
+OECD_logit_prob01 <- predict(OECD_Logitmodel, newdata=OECD_training, type="response")
+
+# factor & confusion matri
+OECD_logit_pred01 <- as.factor(as.numeric(OECD_logit_prob01>0.5))
+OECD_training$prediction = as.factor(OECD_training$prediction)
+confusionMatrix(data = OECD_logit_pred01, reference = OECD_training$prediction)
+
+OECD_logit_prob02 <- predict(OECD_Logitmodel, newdata=OECD_testing, type="response") #,na.action = na.pass)
+
+# factor
+OECD_logit_pred02 <- as.factor(as.numeric(OECD_logit_prob02>0.5))
+OECD_testing$prediction = as.factor(OECD_testing$prediction)
+confusionMatrix(data = OECD_logit_pred02, reference = OECD_testing$prediction)
+
+OECD_Logitmodel2 <- glm(prediction ~.,family=binomial(link='logit'), data=OECD_training2)
+#summary(OECD_Logitmodel2)
+
+#OECD_Logitmodel2$y
+head(OECD_training2,3)
+
+OECD_logit_prob03 <- predict(OECD_Logitmodel2, newdata=OECD_training2, type="response")
+OECD_logit_pred03 <- as.factor(as.numeric(OECD_logit_prob03>0.5))
+OECD_training2$prediction = as.factor(OECD_training2$prediction)
+
+confusionMatrix(data = OECD_logit_pred03, reference = OECD_training2$prediction)
+
+OECD_logit_prob04 <- predict(OECD_Logitmodel2, newdata=OECD_testing2, type="response",na.action = na.pass)
+OECD_logit_pred04 <- as.factor(as.numeric(OECD_logit_prob04>0.5))
+OECD_testing2$prediction = as.factor(OECD_testing2$prediction)
+
+confusionMatrix(data = OECD_logit_pred04, reference = OECD_testing2$prediction)
+
+OECD_pr1 <- prediction(OECD_logit_prob02, OECD_testing$prediction)
+OECD_prf1 <- performance(OECD_pr1, measure = "tpr", x.measure = "fpr")
+plot(OECD_prf1)
+title(main= "AUC Plot1 (OECD)")
+auc1 <- performance(OECD_pr1, measure = "auc")
+auc1 <- auc1@y.values[[1]]
+auc1
+
+OECD_pr2 <- prediction(OECD_logit_prob04, OECD_testing2$prediction)
+OECD_prf2 <- performance(OECD_pr2, measure = "tpr", x.measure = "fpr")
+plot(OECD_prf2)
+title(main= "AUC Plot2 (OECD)")
+auc2 <- performance(OECD_pr2, measure = "auc")
+auc2 <- auc2@y.values[[1]]
+auc2
+
+## Logit ~ ADV
+
+adv_Logitmodel <- glm(prediction ~.,family=binomial(link='logit'), data=adv_training)
+summary(adv_Logitmodel)
+
+#adv_Logitmodel$y
+
+adv_logit_prob01 <- predict(adv_Logitmodel, newdata=adv_training, type="response")
+adv_logit_pred01 <- as.factor(as.numeric(adv_logit_prob01>0.5))
+
+confusionMatrix(data = adv_logit_pred01, reference = adv_training$prediction)
+
+adv_logit_prob02 <- predict(adv_Logitmodel, newdata=adv_testing, type="response") #,na.action = na.pass)
+adv_logit_pred02 <- as.factor(as.numeric(adv_logit_prob02>0.5))
+
+confusionMatrix(data = adv_logit_pred02, reference = adv_testing$prediction)
+
+adv_Logitmodel2 <- glm(prediction ~.,family=binomial(link='logit'), data=adv_training2)
+summary(adv_Logitmodel2)
+
+#adv_Logitmodel2$y
+
+adv_logit_prob03 <- predict(adv_Logitmodel2, newdata=adv_training2, type="response")
+adv_logit_pred03 <- as.factor(as.numeric(adv_logit_prob03>0.5))
+levels(adv_logit_pred03) <- make.names(adv_logit_pred03)
+
+confusionMatrix(data = adv_logit_pred03, reference = adv_training2$prediction)
+
+adv_logit_prob04 <- predict(adv_Logitmodel2, newdata=adv_testing2, type="response",na.action = na.pass)
+adv_logit_pred04 <- as.factor(as.numeric(adv_logit_prob04>0.5))
+levels(adv_logit_pred04) <- make.names(adv_logit_pred04)
+
+confusionMatrix(data = adv_logit_pred04, reference = adv_testing2$prediction)
+
+adv_pr1 <- prediction(adv_logit_prob02, adv_testing$prediction)
+adv_prf1 <- performance(adv_pr1, measure = "tpr", x.measure = "fpr")
+plot(adv_prf1)
+title(main= "AUC Plot1 (ADV)")
+adv_auc1 <- performance(adv_pr1, measure = "auc")
+adv_auc1 <- adv_auc1@y.values[[1]]
+adv_auc1
+
+adv_pr2 <- prediction(adv_logit_prob04, adv_testing2$prediction)
+adv_prf2 <- performance(adv_pr2, measure = "tpr", x.measure = "fpr")
+plot(adv_prf2)
+title(main= "AUC Plot2 (ADV)")
+adv_auc2 <- performance(adv_pr2, measure = "auc")
+adv_auc2 <- adv_auc2@y.values[[1]]
+adv_auc2
+
+
+## LASSO
+
+# Set control parameters for model training
+
+#fitCtrl <- trainControl(method = "timeslice",
+#                        initialWindow = 15,
+#                        horizon = 5,
+#                        fixedWindow = FALSE,
+#                        classProbs = TRUE,
+#                        allowParallel = TRUE)
+
+# Set testing grid
+Lasso_glmnetGrid <- expand.grid(alpha=1, lambda=0)
+
+# OECD
+Lasso_glmnet.res <- train(prediction ~ .,
+                          data=OECD_training,
+                          method="glmnet",
+                          lambda= 0,
+                          tuneGrid=Lasso_glmnetGrid)
+
+Lasso_glmnet.res2 <- train(prediction ~ .,
+                          data=OECD_training2,
+                          method="glmnet",
+                          lambda= 0,
+                          tuneGrid=Lasso_glmnetGrid)
+
+print(Lasso_glmnet.res)
+
+# Extract predictions and assess model performance
+#
+pred.train <- predict(Lasso_glmnet.res, OECD_training, type="raw")
+pred.test <- predict(Lasso_glmnet.res, OECD_testing, type="raw")
+
+pred.train2 <- predict(Lasso_glmnet.res2, OECD_training2, type="raw")
+pred.test2 <- predict(Lasso_glmnet.res2, OECD_testing2, type="raw")
+
+# Confusion Matrix
+confusionMatrix(pred.train, OECD_training$prediction)
+confusionMatrix(pred.test, OECD_testing$prediction)
+
+confusionMatrix(pred.train2, OECD_training2$prediction)
+confusionMatrix(pred.test2, OECD_testing2$prediction)
+
+# AUC score
+OECD_lasso1.prob <- predict(Lasso_glmnet.res, OECD_testing, type="prob")[,"X1"]
+OECD_lasso1.roc <- roc(OECD_testing$prediction, OECD_lasso1.prob) # Draw ROC curve.
+plot(OECD_lasso1.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(OECD_lasso1.roc)
+
+OECD_lasso2.prob <- predict(Lasso_glmnet.res2, OECD_testing2, type="prob")[,"X1"]
+OECD_lasso2.roc <- roc(OECD_testing$prediction, OECD_lasso2.prob) # Draw ROC curve.
+plot(OECD_lasso2.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(OECD_lasso2.roc)
+
+#title(main= "ROC Plot1(Lasso:OECD)")
+#legend_nb <- sprintf("NB (AUC: %.2f)", auc(OECD_lasso1.roc))
+#legend("bottomright", col="blue", legend=legend_nb, lty=1)
+
+#result.coords <- coords(OECD_lasso1.roc, "best", best.method="closest.topleft", ret=c("accuracy"))
+#print(result.coords)#to get threshold and accuracy
+
+
+# ADV
+
+adv_Lasso_glmnet.res <- train(prediction ~ .,
+                          data=adv_training,
+                          method="glmnet",
+                          lambda= 0,
+                          tuneGrid=Lasso_glmnetGrid)
+
+adv_Lasso_glmnet.res2 <- train(prediction ~ .,
+                           data=adv_training2,
+                           method="glmnet",
+                           lambda= 0,
+                           tuneGrid=Lasso_glmnetGrid)
+
+print(adv_Lasso_glmnet.res)
+print(adv_Lasso_glmnet.res2)
+
+# Extract predictions and assess model performance
+#
+adv_pred.train <- predict(adv_Lasso_glmnet.res, adv_training, type="raw")
+adv_pred.test <- predict(adv_Lasso_glmnet.res, adv_testing, type="raw")
+
+adv_pred.train2 <- predict(adv_Lasso_glmnet.res2, adv_training2, type="raw")
+adv_pred.test2 <- predict(adv_Lasso_glmnet.res2, adv_testing2, type="raw")
+
+# Confusion Matrix
+confusionMatrix(adv_pred.train, adv_training$prediction)
+confusionMatrix(adv_pred.test, adv_testing$prediction)
+
+confusionMatrix(adv_pred.train2, adv_training2$prediction)
+confusionMatrix(adv_pred.test2, adv_testing2$prediction)
+
+# AUC score
+adv_lasso1.prob <- predict(Lasso_glmnet.res, adv_testing, type="prob")[,"X1"]
+adv_lasso1.roc <- roc(adv_testing$prediction, adv_lasso1.prob) # Draw ROC curve.
+plot(adv_lasso1.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(adv_lasso1.roc)
+
+adv_lasso2.prob <- predict(Lasso_glmnet.res2, adv_testing2, type="prob")[,"X1"]
+adv_lasso2.roc <- roc(adv_testing$prediction, adv_lasso2.prob) # Draw ROC curve.
+plot(adv_lasso2.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(adv_lasso2.roc)
+
+
+# USING glmnet
+# Regularization coefficients
+#fit.lasso <- glmnet(OECD_training[,-2], OECD_training[,2], family="gaussian", alpha=1, lambda=0)
+#fit.lasso$beta
+
+# Other regularization options
+#fit.lasso <- glmnet(train[,-1], train[,1], family="gaussian", alpha=1)
+#fit.elnet <- glmnet(train[,-1], train[,1], family="gaussian", alpha=.5)
+#fit.ridge <- glmnet(train[,-1], train[,1], family="gaussian", alpha=0)
+
+#par(mfrow=c(1,3))
+#plot(fit.lasso, xvar="lambda")
+#plot(fit.elnet, xvar="lambda")
+#plot(fit.ridge, xvar="lambda")
+
+
+# elastic net
+# set control tunning parameter
+
+fitCtrl <- trainControl(method = "timeslice",
+                        initialWindow = 15,
+                        horizon = 5,
+                        fixedWindow = FALSE,
+                        classProbs = TRUE,
+                        allowParallel = TRUE)
+
+ela_glmnetGrid <- expand.grid(alpha=seq(0,1,by=0.1), lambda=seq(0,1,by=0.1))
+tuneLength.num <- 5
+
+## OECD
+
+ela_glmnet.res <- train(prediction ~ .,
+                    data=OECD_training,
+                    method="glmnet",
+                    trControl=fitCtrl,
+                    #tuneLength=tuneLength.num,
+                    tuneGrid=ela_glmnetGrid,
+                    summaryFunction = twoClassSummary, 
+                    #tuneLength=20,
+                    metric="ROC")
+
+ela_glmnet.res
+plot(ela_glmnet.res)
+
+# The final values used for the model were alpha = 0 and lambda = 1.
+##The final values used for the model were alpha = 0.6 and lambda = 0.
+
+ela_glmnet.res2 <- train(prediction ~ .,
+                        data=OECD_training2,
+                        method="glmnet",
+                        trControl=fitCtrl,
+                        #tuneLength=tuneLength.num,
+                        tuneGrid=ela_glmnetGrid,
+                        summaryFunction = twoClassSummary, 
+                        #tuneLength=20,
+                        metric="ROC")
+
+ela_glmnet.res2
+plot(ela_glmnet.res2)
+
+## The final values used for the model were alpha = 0.1 and lambda = 0.
+
+# tuneLength.num) The final values used for the model were alpha = 0.325 and lambda = 0.01483177.
+
+# Confusion Matrix 
+ela_predict01<-predict(ela_glmnet.res, newdata=OECD_training, type="raw")
+ela_predict02<-predict(ela_glmnet.res, newdata=OECD_testing, type="raw")
+
+ela_predict03<-predict(ela_glmnet.res2, newdata=OECD_training2, type="raw")
+ela_predict04<-predict(ela_glmnet.res2, newdata=OECD_testing2, type="raw")
+
+
+confusionMatrix(ela_predict01, OECD_training$prediction)
+confusionMatrix(ela_predict02, OECD_testing$prediction)
+
+confusionMatrix(ela_predict03, OECD_training2$prediction)
+confusionMatrix(ela_predict04, OECD_testing2$prediction)
+
+# AUC score
+OECD_Ela1.prob <- predict(ela_glmnet.res, OECD_testing, type="prob")[,"X1"]
+OECD_Ela1.roc <- roc(OECD_testing$prediction, OECD_Ela1.prob) # Draw ROC curve.
+plot(OECD_Ela1.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(OECD_Ela1.roc)
+
+OECD_Ela2.prob <- predict(ela_glmnet.res2, OECD_testing2, type="prob")[,"X1"]
+OECD_Ela2.roc <- roc(OECD_testing$prediction, OECD_Ela2.prob) # Draw ROC curve.
+plot(OECD_Ela2.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(OECD_Ela2.roc)
+
+
+## ADV
+
+adv_ela.res <- train(prediction ~ .,
+                        data=adv_training,
+                        method="glmnet",
+                        trControl=fitCtrl,
+                        #tuneLength=tuneLength.num,
+                        tuneGrid=ela_glmnetGrid,
+                        summaryFunction = twoClassSummary, 
+                        #tuneLength=20,
+                        metric="ROC")
+
+adv_ela.res
+plot(adv_ela.res)
+
+# The final values used for the model were alpha = 0 and lambda = 1.
+##The final values used for the model were alpha = 0.6 and lambda = 0.
+
+adv_ela.res2 <- train(prediction ~ .,
+                         data=adv_training2,
+                         method="glmnet",
+                         trControl=fitCtrl,
+                         #tuneLength=tuneLength.num,
+                         tuneGrid=ela_glmnetGrid,
+                         summaryFunction = twoClassSummary, 
+                         #tuneLength=20,
+                         metric="ROC")
+
+adv_ela.res2
+plot(adv_ela.res2)
+
+## The final values used for the model were alpha = 0.1 and lambda = 0.
+
+# tuneLength.num) The final values used for the model were alpha = 0.325 and lambda = 0.01483177.
+
+# Confusion Matrix 
+adv_ela_predict01<-predict(adv_ela.res, newdata=adv_training, type="raw")
+adv_ela_predict02<-predict(adv_ela.res, newdata=adv_testing, type="raw")
+
+adv_ela_predict03<-predict(adv_ela.res2, newdata=adv_training2, type="raw")
+adv_ela_predict04<-predict(adv_ela.res2, newdata=adv_testing2, type="raw")
+
+confusionMatrix(adv_ela_predict01, adv_training$prediction)
+confusionMatrix(adv_ela_predict02, adv_testing$prediction)
+
+confusionMatrix(adv_ela_predict03, adv_training2$prediction)
+confusionMatrix(adv_ela_predict04, adv_testing2$prediction)
+
+#AUC
+
+adv_Ela1.prob <- predict(ela_glmnet.res, adv_testing, type="prob")[,"X1"]
+adv_Ela1.roc <- roc(adv_testing$prediction, adv_Ela1.prob) # Draw ROC curve.
+plot(adv_Ela1.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(adv_Ela1.roc)
+
+adv_Ela2.prob <- predict(ela_glmnet.res2, adv_testing2, type="prob")[,"X1"]
+adv_Ela2.roc <- roc(adv_testing$prediction, adv_Ela2.prob) # Draw ROC curve.
+plot(adv_Ela2.roc, print.auc=TRUE, auc.polygon=TRUE, grid=c(0.1, 0.2),col="blue")
+auc(adv_Ela2.roc)
+
+
+
+# ROC
+pred.train <- predict(ela_glmnet.res, OECD_training, type="prob")[,"X1"]
+roc(OECD_training$prediction ~ pred.train)
+#
+pred.test <- predict(ela_glmnet.res, OECD_testing, type="prob")[,"X1"]
+roc(OECD_testing$prediction ~ pred.test)
+#
+plot.roc(OECD_training$prediction, pred.train)
+plot.roc(OECD_testing$prediction, pred.test, add=TRUE, col="green")
+
+
+###########
+rf.fit <- randomForest(x = OECD_variables_dropped[,-(0:3)], y = NULL, ntree = 10000, proximity = TRUE, oob.prox = TRUE)
+hclust.rf <- hclust(as.dist(1-rf.fit$proximity), method = "ward.D2")
+rf.cluster = cutree(hclust.rf, k=2)
+rf.cluster
+oecd.pc$rf.clusters <- rf.cluster
+table(rf.cluster, OECD_variables_dropped$prediction)
+
+
+
+#####
+
+
+OECD_variables_lag<-sqldf("select OECD_base.WB_Code, OECD_base.year, prediction, Conta_yearPassed,Conta_HistoricalFreq,Conta_numberCrisis, Fertilityrate,	GeneralGovGrossdebt,
+                      yrcurnt, legelec, exelec, GrossNationalSavings, ImpliedPPP_conversionRate, TotalInvestment, UnemploymentRate, CentralGov_Debt, 
+                      HouseholdDebt_PofGDP, HouseholdDebt_loans_PofGDP, NonfinCorpDebt_loans_PofGDP, PrivateDebt_loans_PofGDP, 
+                      WB_NODA, Current_account_bal_US/GDP_current_US as Current_account_bal_pGDP, 
+                      Volume_exports_gands/GDP_current_US as exports_gands_pGDP, Volume_imports_gands/GDP_current_US as imports_gands_pGDP,
+                      IMF_ExchangeRates_avg, IMF_ExchageRates_end,
+                      -100*(1 - IMF_InternationalLiquidity_Reserv/lag(IMF_InternationalLiquidity_Reserv) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_InternationLiquidity_Rev, 
+                      IMF_GovernExpenditure_pGDP, IMF_GovernPrimaryExpenditure_pGDP, IMF_GrossOperatingBalance,
+                      IMF_GovernPrimaryBalance_pGDP, Gen_gov_rev_pofGDP, IMF_RealGDPgrowth, 
+                      WB_PopulationAges, -100*(1 - WB_PopulationAges/lag(WB_PopulationAges) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_WB_PopulationAges,
+                      WB_UrbanPopulation, WB_AgeDependency, WB_PopulationDensity, IMF_Debt_pGDP, WB_DomesticCredit,
+                      WB_BroadMoney, IMF_GrossPublicDebt_pGDP, IMF_GrossPublicDebt_pGDP/Gen_gov_rev_pofGDP as IMF_GrossPublicDebt_pRev,
+                      -100*(1 - IMF_GDPperCapita_dollars/lag(IMF_GDPperCapita_dollars) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_GDPperCapita, GDP_constant_percent
+                      -100*(1 - GDP_current_US/lag(GDP_current_US) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_GDP_current_US,
+                      -100*(1 - InflationAvg_index/lag(InflationAvg_index) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_InflationAvg_index,
+                      -100*(1 - InflationEnd_index/lag(InflationEnd_index) OVER (order by OECD_base.WB_Code, OECD_base.year)) as Pchange_InflationEnd_index,
+                      WB_GrossDomestricSavings, WB_MineralRents, WB_OilRents, WB_TotalNaturalResources, WB_Agriculture,
+                    fiscal_rules, InflationAvg_index, GDP_capita_constant_PPP,
+                      log(WB_PopulationAges/b.US_pop) as relative_pop, GDP_capita_constant_PPP/b.US_realGDPcap as relative_real, log(GDP_capita_constant_PPP/b.US_nomialGDP) as relative_nomial
+                      from OECD_base left join (select a.WB_Code, a.year, a.WB_PopulationAges as US_pop, a.GDP_capita_constant_PPP as US_realGDPcap, a.GDP_current_US as US_nomialGDP from OECD_variables a where a.WB_Code = 'USA') b on OECD_base.year = b.year
+                      where OECD_base.year>=1982 and OECD_base.year<=2015 order by OECD_base.WB_Code, OECD_base.year")
+
+adv_variables_lag<-sqldf("select adv_base.WB_Code, adv_base.year, prediction, Conta_yearPassed,Conta_HistoricalFreq,Conta_numberCrisis,Fertilityrate,	GeneralGovGrossdebt,
+                      yrcurnt, legelec, exelec, GrossNationalSavings, ImpliedPPP_conversionRate, TotalInvestment, UnemploymentRate, CentralGov_Debt, 
+                      HouseholdDebt_PofGDP, HouseholdDebt_loans_PofGDP, NonfinCorpDebt_loans_PofGDP, PrivateDebt_loans_PofGDP, 
+                      WB_NODA, Current_account_bal_US/GDP_current_US as Current_account_bal_pGDP, 
+                      Volume_exports_gands/GDP_current_US as exports_gands_pGDP, Volume_imports_gands/GDP_current_US as imports_gands_pGDP,
+                      IMF_ExchangeRates_avg, IMF_ExchageRates_end,
+                      -100*(1 - IMF_InternationalLiquidity_Reserv/lag(IMF_InternationalLiquidity_Reserv) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_InternationLiquidity_Rev, 
+                      IMF_GovernExpenditure_pGDP, IMF_GovernPrimaryExpenditure_pGDP, IMF_GrossOperatingBalance,
+                      IMF_GovernPrimaryBalance_pGDP, Gen_gov_rev_pofGDP, IMF_RealGDPgrowth, 
+                      WB_PopulationAges, -100*(1 - WB_PopulationAges/lag(WB_PopulationAges) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_WB_PopulationAges,
+                      WB_UrbanPopulation, WB_AgeDependency, WB_PopulationDensity, IMF_Debt_pGDP, WB_DomesticCredit,
+                      WB_BroadMoney, IMF_GrossPublicDebt_pGDP, IMF_GrossPublicDebt_pGDP/Gen_gov_rev_pofGDP as IMF_GrossPublicDebt_pRev,
+                      -100*(1 - IMF_GDPperCapita_dollars/lag(IMF_GDPperCapita_dollars) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_GDPperCapita, GDP_constant_percent
+                      -100*(1 - GDP_current_US/lag(GDP_current_US) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_GDP_current_US,
+                      -100*(1 - InflationAvg_index/lag(InflationAvg_index) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_InflationAvg_index,
+                      -100*(1 - InflationEnd_index/lag(InflationEnd_index) OVER (order by adv_base.WB_Code, adv_base.year)) as Pchange_InflationEnd_index,
+                      WB_GrossDomestricSavings, WB_MineralRents, WB_OilRents, WB_TotalNaturalResources, WB_Agriculture,
+                    fiscal_rules, InflationAvg_index, GDP_capita_constant_PPP,
+                      log(WB_PopulationAges/b.US_pop) as relative_pop, GDP_capita_constant_PPP/b.US_realGDPcap as relative_real, log(GDP_capita_constant_PPP/b.US_nomialGDP) as relative_nomial
+                      from adv_base left join (select a.WB_Code, a.year, a.WB_PopulationAges as US_pop, a.GDP_capita_constant_PPP as US_realGDPcap, a.GDP_current_US as US_nomialGDP from adv_variables a where a.WB_Code = 'USA') b on adv_base.year = b.year
+                      where adv_base.year>=1982 and adv_base.year<=2015 order by adv_base.WB_Code, adv_base.year")
+
+OECD_variables_lag <- OECD_variables_lag %>% fgroup_by(WB_code) %>% flag(0:3)
+adv_variables_lag <- adv_variables_lag %>% fgroup_by(WB_code) %>% flag(0:3)
+
+OECD_variables_lag <-OECD_variables_lag[,c(-7,-8,-9)]
+adv_variables_lag <-adv_variables_lag[,c(-7,-8,-9)]
+
+OECD_variables_lag <-OECD_variables_lag[c(-1,-2,-3),]
+adv_variables_lag <- adv_variables_lag[c(-1,-2,-3),]
+
+OECD_variables_dropped<-OECD_variables_lag
+adv_variables_dropped<-adv_variables_lag
+
+
+#### ADD lag variables
+
+OECD_variables_lag <- OECD_variables_dropped %>% fgroup_by(WB_code) %>% flag(0:3)
+OECD_variables_lag <- sqldf("select * from lag01  where year1>=1975 and year1<=2015") 
+
+
+str(OECD_variables_lag)
+
+
+write.csv(level01,"/Users/minkyoung/Dropbox/Data/level02.csv", row.names = FALSE)
+write.csv(level02,"/Users/minkyoung/Dropbox/Data/level03.csv", row.names = FALSE)
+write.csv(lag01,"/Users/minkyoung/Dropbox/Data/level03.csv", row.names = FALSE)
+
+
+### 
+
+test<-sqldf("select WB_Code1, year1, WB_PopulationAges, WB_AgeDependency, IMF_Debt_pGDP from WB_IMF_Crisis order by WB_Code1, year1")
+
+head(sapply(test, diff))
+
+lapply(test[1:2], diff, lag=1)
+
+head(sqldf("select WB_Name1, WB_Code1, year1, prediction, market,
+      -100*(1 - variable/lag(variable) OVER (order by WB_Name1, year1)) as Pchange_variable from WB_IMF_Crisis where WB_Code1 = 'KOR' order by WB_Name1, year1  "),5)
+
