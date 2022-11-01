@@ -1,0 +1,768 @@
+rm(list=ls(all=TRUE))
+setwd("/Users/minkyoung/Documents/Working/RA")
+#Sys.setenv(PKG_CONFIG_PATH="/usr/local/opt/openssl@1.1/lib/pkgconfig")
+library(sqldf)
+library(dplyr)
+library(cluster)
+library(ggExtra)
+library(ggplot2)
+library(factoextra)
+library(psych)
+library(tibble)
+library(randomForest)
+library(textshape)
+library(reshape2)
+library(gapminder)
+library(gridExtra)
+
+theme_set(theme_grey(base_family='NanumGothic'))
+
+## data
+formap<-read.csv("formap.csv")
+fin<-read.csv("finscore1419_V03.csv")
+fin_all<-sqldf('SELECT code, index_code, total_avg,	city_avg,	pro_avg,year,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin')
+fin14_FE<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FE' and year=2014")
+fin14_FS<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FS' and year=2014")
+fin15_FE<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FE' and year=2015")
+fin15_FS<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FS' and year=2015")
+fin16_FE<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FE' and year=2016")
+fin16_FS<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FS' and year=2016")
+
+fin17_FS<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FS' and year=2017")
+fin17_FE<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FE' and year=2017")
+
+fin18_FS<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FS' and year=2018")
+fin18_FE<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FE' and year=2018")
+
+fin19_FS<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FS' and year=2019")
+fin19_FE<-sqldf("SELECT code, total_avg,	city_avg,	pro_avg,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin where index_code='FE' and year=2019")
+
+fin14_FE<-setNames(data.frame(t(fin14_FE[,-1])), fin14_FE[,1])
+fin15_FE<-setNames(data.frame(t(fin15_FE[,-1])), fin15_FE[,1])
+fin16_FE<-setNames(data.frame(t(fin16_FE[,-1])), fin16_FE[,1])
+fin17_FE<-setNames(data.frame(t(fin17_FE[,-1])), fin17_FE[,1])
+fin18_FE<-setNames(data.frame(t(fin18_FE[,-1])), fin18_FE[,1])
+fin19_FE<-setNames(data.frame(t(fin19_FE[,-1])), fin19_FE[,1])
+
+fin14_FS<-setNames(data.frame(t(fin14_FS[,-1])), fin14_FS[,1])
+fin15_FS<-setNames(data.frame(t(fin15_FS[,-1])), fin15_FS[,1])
+fin16_FS<-setNames(data.frame(t(fin16_FS[,-1])), fin16_FS[,1])
+fin17_FS<-setNames(data.frame(t(fin17_FS[,-1])), fin17_FS[,1])
+fin18_FS<-setNames(data.frame(t(fin18_FS[,-1])), fin18_FS[,1])
+fin19_FS<-setNames(data.frame(t(fin19_FS[,-1])), fin19_FS[,1])
+
+fin17_FE<-fin17_FE[ ,-3]
+fin18_FE<-fin18_FE[ ,-3]
+fin18_FE<-fin18_FE[ ,-17]
+fin19_FE<-fin19_FE[ ,-22]
+fin19_FE<-fin19_FE[ ,-2]
+
+
+
+
+#kmeans_rna<-kmeans(x, centers, iter.max = 10, nstart = 1,
+#                   algorithm = c("Hartigan-Wong", "Lloyd", "Forgy",
+#                                 "MacQueen"), trace=FALSE)
+
+set.seed(0120)
+centers = 3
+nstart = 20
+
+## Functions
+
+#1. parameter K
+
+withinssatK <- function(df_num, nc = 6, seed = 0120) {
+  wss <- (nrow(scale(df_num)) - 1) * sum(apply(scale(df_num), 2, var))
+  for (i in 2:nc) {
+    set.seed(seed)
+    wss[i] <- sum(kmeans(scale(df_num), centers=i)$withinss)}
+  plot(1:nc, wss, type="b", xlab = "Number of Clusters",
+       ylab = "Within groups sum of squares", main="sum(withinss) at K")}
+
+#2. kmeans
+
+kmeansinYr<-function(df_num,kmeans_nm){
+kmeans_nm<-kmeans(scale(df_num), centers, nstart = nstart)
+paste('K-means clustering with 4 clusters of sizes :',kmeans_nm$size[1],kmeans_nm$size[2],kmeans_nm$size[3])
+}
+
+#3. Compute Hopkins statistic + plot
+# if H < 0.5, then it is unlikely that D has statistically significant clusters.
+
+hopkinsYr<-function(df_num){
+tendency<-get_clust_tendency(scale(df_num),n=nrow(df_num)-1,graph = TRUE)
+print(tendency$hopkins_stat)
+tendency$plot}
+
+?get_clust_tendency
+################
+
+##all variables, each year
+
+paste('결산공시 2014 효율성 :',kmeansinYr(fin14_FE[,-18],kmeans14FE))
+paste('결산공시 2015 효율성:',kmeansinYr(fin15_FE,kmeans15))
+paste('결산공시 2016 효율성:',kmeansinYr(fin16_FE,kmeans16))
+paste('결산공시 2017 효율성:',kmeansinYr(fin17_FE[,-16],kmeans17))
+paste('결산공시 2018 효율성:',kmeansinYr(fin18_FE[,-16],kmeans18))
+paste('결산공시 2019 효율성:',kmeansinYr(fin19_FE,kmeans19))
+
+kmeans(scale(fin14_FE), centers, nstart = nstart)
+kmeans(scale(fin15_FE), centers, nstart = nstart)
+kmeans(scale(fin16_FE), centers, nstart = nstart)
+kmeans(scale(fin17_FE[,-16]), centers, nstart = nstart)
+kmeans(scale(fin18_FE[,-16]), centers, nstart = nstart)
+kmeans(scale(fin19_FE), centers, nstart = nstart)
+
+withinssatK(fin14_FE)
+withinssatK(fin15_FE)
+withinssatK(fin16_FE)
+withinssatK(na.omit(fin17_FE))
+withinssatK(na.omit(fin18_FE))
+withinssatK(na.omit(fin19_FE))
+
+hopkinsYr(fin14_FE)
+hopkinsYr(fin15_FE)
+hopkinsYr(fin16_FE)
+hopkinsYr(fin17_FE)
+hopkinsYr(fin18_FE)
+hopkinsYr(fin19_FE)
+
+paste('결산공시 2014 건전성 :',kmeansinYr(fin14_FS,kmeans14FS))
+paste('결산공시 2015 건전성:',kmeansinYr(fin15_FS,kmeans15))
+paste('결산공시 2016 건전성:',kmeansinYr(fin16_FS,kmeans16))
+paste('결산공시 2017 건전성:',kmeansinYr(fin17_FS,kmeans17))
+paste('결산공시 2018 건전성:',kmeansinYr(fin18_FS,kmeans18))
+paste('결산공시 2019 건전성:',kmeansinYr(fin19_FS,kmeans19))
+
+kmeans(scale(fin14_FS), centers, nstart = nstart)
+kmeans(scale(fin15_FS), centers, nstart = nstart)
+kmeans(scale(fin16_FS), centers, nstart = nstart)
+kmeans(scale(fin17_FS), centers, nstart = nstart)
+kmeans(scale(fin18_FS), centers, nstart = nstart)
+kmeans(scale(fin19_FS), centers, nstart = nstart)
+
+kmeans(scale(fin19_FE), centers, nstart = nstart)
+
+withinssatK(fin14_FS)
+withinssatK(fin15_FS)
+withinssatK(fin16_FS)
+withinssatK(na.omit(fin17_FS))
+withinssatK(na.omit(fin18_FS))
+withinssatK(na.omit(fin19_FS))
+
+hopkinsYr(fin14_FE)
+hopkinsYr(fin15_FE)
+hopkinsYr(fin16_FE)
+hopkinsYr(fin17_FE)
+hopkinsYr(fin18_FE)
+hopkinsYr(fin19_FE)
+
+hopkinsYr(fin14_FS)
+hopkinsYr(fin15_FS)
+hopkinsYr(fin16_FS)
+hopkinsYr(fin17_FS)
+hopkinsYr(fin18_FS)
+hopkinsYr(fin19_FS)
+
+###############
+
+FS_index<-read.csv("FS_index.csv")
+FS_index<-data.frame(FS_index,row.names = FS_index[,1])
+
+FE_index<-read.csv("FE_index.csv")
+FE_index<-data.frame(FE_index,row.names = FE_index[,1])
+
+fin14_FS<-fin14_FS[-1:-3,]
+fin14_FS<-rownames_to_column(fin14_FS,var ='city')
+fin14_FS<-sqldf('SELECT fin14_FS.*,index14.y14 as kgrp FROM fin14_FS left join (select city, y14 from FS_index) as index14 on fin14_FS.city=index14.city')
+
+fin14_FE<-fin14_FE[-1:-3,]
+fin14_FE<-rownames_to_column(fin14_FE,var ='city')
+fin14_FE<-sqldf('SELECT fin14_FE.*,index14.y14 as kgrp FROM fin14_FE left join (select city, y14 from FE_index) as index14 on fin14_FE.city=index14.city')
+
+fin15_FS<-fin15_FS[-1:-3,]
+fin15_FS<-rownames_to_column(fin15_FS,var ='city')
+fin15_FS<-sqldf('SELECT fin15_FS.*,index15.y15 as kgrp FROM fin15_FS left join (select city, y15 from FS_index) as index15 on fin15_FS.city=index15.city')
+
+fin15_FE<-fin15_FE[-1:-3,]
+fin15_FE<-rownames_to_column(fin15_FE,var ='city')
+fin15_FE<-sqldf('SELECT fin15_FE.*,index15.y15 as kgrp FROM fin15_FE left join (select city, y15 from FE_index) as index15 on fin15_FE.city=index15.city')
+
+fin16_FS<-fin16_FS[-1:-3,]
+fin16_FS<-rownames_to_column(fin16_FS,var ='city')
+fin16_FS<-sqldf('SELECT fin16_FS.*,index16.y16 as kgrp FROM fin16_FS left join (select city, y16 from FS_index) as index16 on fin16_FS.city=index16.city')
+
+fin16_FE<-fin16_FE[-1:-3,]
+fin16_FE<-rownames_to_column(fin16_FE,var ='city')
+fin16_FE<-sqldf('SELECT fin16_FE.*,index16.y16 as kgrp FROM fin16_FE left join (select city, y16 from FE_index) as index16 on fin16_FE.city=index16.city')
+
+fin17_FS<-fin17_FS[-1:-3,]
+fin17_FS<-rownames_to_column(fin17_FS,var ='city')
+fin17_FS<-sqldf('SELECT fin17_FS.*,index17.y17 as kgrp FROM fin17_FS left join (select city, y17 from FS_index) as index17 on fin17_FS.city=index17.city')
+
+fin17_FE<-fin17_FE[-1:-3,]
+fin17_FE<-rownames_to_column(fin17_FE,var ='city')
+fin17_FE<-sqldf('SELECT fin17_FE.*,index17.y17 as kgrp FROM fin17_FE left join (select city, y17 from FE_index) as index17 on fin17_FE.city=index17.city')
+
+fin18_FS<-fin18_FS[-1:-3,]
+fin18_FS<-rownames_to_column(fin18_FS,var ='city')
+fin18_FS<-sqldf('SELECT fin18_FS.*,index18.y18 as kgrp FROM fin18_FS left join (select city, y18 from FS_index) as index18 on fin18_FS.city=index18.city')
+
+fin18_FE<-fin18_FE[-1:-3,]
+fin18_FE<-rownames_to_column(fin18_FE,var ='city')
+fin18_FE<-sqldf('SELECT fin18_FE.*,index18.y18 as kgrp FROM fin18_FE left join (select city, y18 from FE_index) as index18 on fin18_FE.city=index18.city')
+
+fin19_FS<-fin19_FS[-1:-3,]
+fin19_FS<-rownames_to_column(fin19_FS,var ='city')
+fin19_FS<-sqldf('SELECT fin19_FS.*,index19.y19 as kgrp FROM fin19_FS left join (select city, y19 from FS_index) as index19 on fin19_FS.city=index19.city')
+
+fin19_FE<-fin19_FE[-1:-3,]
+fin19_FE<-rownames_to_column(fin19_FE,var ='city')
+fin19_FE<-sqldf('SELECT fin19_FE.*,index19.y19 as kgrp FROM fin19_FE left join (select city, y19 from FE_index) as index19 on fin19_FE.city=index19.city')
+
+### AVG Values of Variable 
+
+sqldf('SELECT kgrp, count(*),AVG(y14FE6_r),	AVG(y14FE8_r),	AVG(y14FE14_r),	AVG(y14FE16_r),	AVG(y14FE18_r),	AVG(y14FE21_r),	AVG(y14FE23_r),	AVG(y14FE25_r),	AVG(y14FE30_r),	AVG(y14FE42_r),	AVG(y14FE45_r),	AVG(y14FE47_r),	AVG(y14FE49_r),	AVG(y14FE55_r),	AVG(y14FE58_r),	AVG(y14FE62_r) 
+      FROM fin14_FE GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y15FE5_r),	AVG(y15FE8_r),	AVG(y15FE10_r),	AVG(y15FE12_r),	AVG(y15FE14_r),	AVG(y15FE16_r),	AVG(y15FE18_r),	AVG(y15FE21_r),	AVG(y15FE23_r),	AVG(y15FE25_r),	AVG(y15FE27_r),	AVG(y15FE28_r),	AVG(y15FE30_r),	AVG(y15FE42_r),	AVG(y15FE45_r),	AVG(y15FE49_r),	AVG(y15FE55_r),	AVG(y15FE57_r),	AVG(y15FE58_r),	AVG(y15FE59_r),	AVG(y15FE62_r) 
+      FROM fin15_FE GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y16FE5_r),	AVG(y16FE8_r),	AVG(y16FE10_r),	AVG(y16FE12_r),	AVG(y16FE14_r),	AVG(y16FE16_r),	AVG(y16FE18_r),	AVG(y16FE21_r),	AVG(y16FE23_r),	AVG(y16FE25_r),	AVG(y16FE27_r),	AVG(y16FE28_r),	AVG(y16FE30_r),	AVG(y16FE32_r),	AVG(y16FE42_r),	AVG(y16FE49_r),	AVG(y16FE51_r),	AVG(y16FE53_r),	AVG(y16FE55_r),	AVG(y16FE57_r),	AVG(y16FE58_r),	AVG(y16FE59_r),	AVG(y16FE60_r),	AVG(y16FE61_r),	AVG(y16FE62_r),	AVG(y16FE63_r) 
+      FROM fin16_FE GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y17FE14_r),	AVG(y17FE15_r),	AVG(y17FE18_r),	AVG(y17FE21_r),	AVG(y17FE33_r),	AVG(y17FE34_r),	AVG(y17FE35_r),	AVG(y17FE36_r),	AVG(y17FE37_r),	AVG(y17FE38_r),	AVG(y17FE39_r),	AVG(y17FE42_r),	AVG(y17FE49_r),	AVG(y17FE68_r),	AVG(y17FE70_r) 
+      FROM fin17_FE GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y18FE14_r),	AVG(y18FE15_r),	AVG(y18FE18_r),	AVG(y18FE20_r),	AVG(y18FE21_r),	AVG(y18FE33_r),	AVG(y18FE34_r),	AVG(y18FE35_r),	AVG(y18FE36_r),	AVG(y18FE37_r),	AVG(y18FE38_r),	AVG(y18FE42_r),	AVG(y18FE49_r),	AVG(y18FE68_r),	AVG(y18FE70_r) 
+      FROM fin18_FE GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y19FE15_r),	AVG(y19FE20_r),	AVG(y19FE21_r),	AVG(y19FE35_r),	AVG(y19FE36_r),	AVG(y19FE37_r),	AVG(y19FE38_r),	AVG(y19FE39_r),	AVG(y19FE40_r),	AVG(y19FE42_r),	AVG(y19FE43_r),	AVG(y19FE49_r),	AVG(y19FE60_r),	AVG(y19FE62_r),	AVG(y19FE64_r),	AVG(y19FE66_r),	AVG(y19FE68_r),	AVG(y19FE69_r),	AVG(y19FE70_r) 
+      FROM fin19_FE GROUP BY kgrp')
+
+
+sqldf('SELECT kgrp, count(*),AVG(y14FS1_r), AVG(y14FS2_r), AVG(y14FS3_r), AVG(y14FS4_r) FROM fin14_FS GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y15FS1_r), AVG(y15FS2_r), AVG(y15FS4_r) FROM fin15_FS GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y16FS1_r), AVG(y16FS2_r), AVG(y16FS3_r), AVG(y16FS4_r) FROM fin16_FS GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y17FS1_r), AVG(y17FS2_r), AVG(y17FS3_r), AVG(y17FS4_r) FROM fin17_FS GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y18FS1_r), AVG(y18FS2_r), AVG(y18FS3_r), AVG(y18FS4_r) FROM fin18_FS GROUP BY kgrp')
+sqldf('SELECT kgrp, count(*),AVG(y19FS1_r), AVG(y19FS2_r), AVG(y19FS3_r), AVG(y19FS4_r) FROM fin19_FS GROUP BY kgrp')
+
+sqldf('SELECT AVG(y14FS1_r), AVG(y14FS2_r), AVG(y14FS3_r), AVG(y14FS4_r) FROM fin_panel where code in () and city="Seojong"')
+sqldf('SELECT AVG(y14FS1_r), AVG(y14FS2_r), AVG(y14FS3_r), AVG(y14FS4_r) FROM fin14_FS where and city!="Seojong"')
+
+
+fin_pan2<-sqldf('SELECT index_code, item_code, yr_code, Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju from fin_pan where type_code="r"')
+fin_pan2$code<-paste0(fin_pan2$index_code, fin_pan2$item_code)
+fin_pan2<-fin_pan2[,-1:-2]
+write.csv(fin_pan2,"fin_pan2.csv")
+
+#head(sqldf('SELECT * from fin15_FS'),0)
+
+## box plot
+
+### FS BOX-Plot
+
+variable_labeller <- function(variable,value){
+  return(variable_names[value])}
+
+variable_names <- c(a1="통합재정수지",	a2="실질수지",	a3="관리채무",	a4="관리채무상환")
+
+box14<-melt(fin14_FS, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y14FS1_r','y14FS2_r','y14FS3_r','y14FS4_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2014년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+variable_names <- c(a1="통합재정수지",	a2="실질수지",	a3="관리채무상환")
+
+box15<-melt(fin15_FS, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y15FS1_r','y15FS2_r','y15FS4_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2015년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 3, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+variable_names <- c(a1="통합재정수지",	a2="실질수지",	a3="관리채무",	a4="관리채무상환")
+
+box16<-melt(fin16_FS, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y16FS1_r','y16FS2_r','y16FS3_r','y16FS4_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2016년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+box17<-melt(fin17_FS, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y17FS1_r','y17FS2_r','y17FS3_r','y17FS4_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2017년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+box18<-melt(fin18_FS, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y18FS1_r','y18FS2_r','y18FS3_r','y18FS4_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2018년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+box19<-melt(fin19_FS, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y19FS1_r','y19FS2_r','y19FS3_r','y19FS4_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2019년") +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+grid.arrange(box14,box15,box16,nrow=1, ncol=3)
+grid.arrange(box17,box18,box19,nrow=1, ncol=3)
+
+
+### FE Box Plot
+
+variable_names <- c(a1="핵심교육투자",	a2="지방세이전수입",	a3="행정운영경비",	a4="특별교육재정집행")
+
+box14<-melt(fin14_FE, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y14FE23_r','y14FE14_r','y14FE25_r','y14FE49_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2014년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+box16
+box15<-melt(fin15_FE, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y15FE23_r','y15FE14_r','y15FE25_r','y15FE49_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2015년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+box16<-melt(fin16_FE, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y16FE23_r','y16FE14_r','y16FE25_r','y16FE49_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2016년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+variable_names <- c(a1="업무추진비집행",	a2="지방공무원인건비",	a3="예산조기집행",	a4="적정학생수학교")
+
+box17<-melt(fin17_FE, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y17FE42_r','y17FE35_r','y17FE68_r','y17FE70_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2017년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+box18<-melt(fin18_FE, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y18FE42_r','y18FE35_r','y18FE68_r','y18FE70_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2018년") +
+  geom_boxplot() +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+box19<-melt(fin19_FE, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y19FE42_r','y19FE35_r','y19FE68_r','y19FE70_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  ggtitle("2019년") +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4, labeller=labeller(variable=variable_labeller), scale="free") +
+  theme(legend.position = "none") +
+  geom_text(aes(label=city), size=2.5, vjust=2)
+
+
+grid.arrange(box14,box15,box16,nrow=1, ncol=3)
+grid.arrange(box17,box18,box19,nrow=1, ncol=3)
+
+melt(fin19_FS, id.vars =c('city','kgrp')) %>% 
+  filter(variable %in% c('y19FS1_r','y19FS2_r','y19FS3_r','y19FS4_r')) %>%
+  ggplot(aes(x=factor(kgrp),y=value, fill=variable)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(label=city), size=2, vjust=2)
+
+
+
+fin14_FS<-fin14_FS[-1:-3,]
+fin14_FS<-rownames_to_column(fin14_FS,var ='city')
+fin14_FS<-sqldf('SELECT fin14_FS.*,index19.y14 FROM fin14_FS left join (select city, y14 from FS_index) as index19 on fin14_FS.city=index19.city')
+
+fin14_FE<-fin14_FE[-1:-3,]
+fin14_FE<-rownames_to_column(fin14_FE,var ='city')
+fin14_FE<-sqldf('SELECT fin14_FE.*,index19.y14 FROM fin14_FE left join (select city, y14 from FE_index) as index19 on fin14_FE.city=index19.city')
+
+
+melt(fin14_FS, id.vars =c('city','y14')) %>% 
+  filter(variable %in% c('y14FS1_r','y14FS2_r','y14FS3_r','y14FS4_r','y14FS5_r')) %>%
+  ggplot(aes(x=factor(y14),y=scale(value), fill=variable)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(label=city), size=2, vjust=2)
+
+
+melt(fin14_FS, id.vars =c('city','y14')) %>% 
+  filter(variable %in% c('y14FS2_r','y14FS3_r','y14FS4_r')) %>%
+  ggplot(aes(x=factor(y14),y=scale(value), fill=variable)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 5) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(label=city), size=2, vjust=2)
+
+
+melt(fin14_FE, id.vars =c('city','y14')) %>% 
+  filter(variable %in% c('y14FE38_r','y14FE39_r','y14FE60_r')) %>%
+  ggplot(aes(x=factor(y19),y=value, fill=variable)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(label=city), size=2, vjust=2)
+
+
+melt(fin19_FE, id.vars =c('city','y19')) %>% 
+  filter(variable %in% c('y19FE38_r','y19FE39_r','y19FE60_r')) %>%
+  ggplot(aes(x=factor(y19),y=value, fill=variable)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(label=city), size=2, vjust=2)
+
+melt(fin19_FE, id.vars =c('city','y19')) %>% 
+  filter(variable %in% c('y19FE64_r', 'y19FE60_r')) %>%
+  ggplot(aes(x=factor(y19),y=value, fill=variable)) +
+  geom_boxplot() +
+  geom_jitter(width=0.1,alpha=0.2) +
+  xlab("Cluster Group")+ 
+  facet_wrap(~variable,ncol = 4) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(label=city), size=2, vjust=2)
+
+
+
+############################################
+
+### panel
+fin_pan<-read.csv("finscore1419_panel.csv")
+fin_panel<-sqldf('SELECT index_code,item_code,total_avg,	city_avg,	pro_avg,year,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin_pan where p_index=1')
+fin_panel$code<-paste0(fin_panel[,1],fin_panel[,2])
+fin_panel<-fin_panel[,-1:-2]
+
+#fin_panel<-setNames(data.frame(t(fin_panel[,-19])), fin_panel[,19])
+
+#fin_panel<-fin_panel[,-1:-3]
+
+fin_panel14<-sqldf('select * from fin_panel where year=2014')
+fin_panel14<-setNames(data.frame(t(fin_panel14[,-22])), fin_panel14[,22])
+fin_panel14<-fin_panel14[-4,]
+fin_panel14$year<-2014
+
+fin_panel15<-sqldf('select * from fin_panel where year=2015')
+fin_panel15<-setNames(data.frame(t(fin_panel15[,-22])), fin_panel15[,22])
+fin_panel15<-fin_panel15[-4,]
+fin_panel15$year<-2015
+
+fin_panel16<-sqldf('select * from fin_panel where year=2016')
+fin_panel16<-setNames(data.frame(t(fin_panel16[,-22])), fin_panel16[,22])
+fin_panel16<-fin_panel16[-4,]
+fin_panel16$year<-2016
+
+fin_panel17<-sqldf('select * from fin_panel where year=2017')
+fin_panel17<-setNames(data.frame(t(fin_panel17[,-22])), fin_panel17[,22])
+fin_panel17<-fin_panel17[-4,]
+fin_panel17$year<-2017
+
+fin_panel18<-sqldf('select * from fin_panel where year=2018')
+fin_panel18<-setNames(data.frame(t(fin_panel18[,-22])), fin_panel18[,22])
+fin_panel18<-fin_panel18[-4,]
+fin_panel18$year<-2018
+
+fin_panel19<-sqldf('select * from fin_panel where year=2019')
+fin_panel19<-setNames(data.frame(t(fin_panel19[,-22])), fin_panel19[,22])
+fin_panel19<-fin_panel19[-4,]
+fin_panel19$year<-2019
+
+fin_panel1419<-rbind(fin_panel14,fin_panel15,fin_panel16,fin_panel17,fin_panel18,fin_panel19)
+
+
+#############
+### 14-16
+
+
+fin1416<-sqldf('SELECT index_code,item_code,total_avg,	city_avg,	pro_avg,year,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin_pan where h1_index=2 and year<2017')
+fin1416$code<-paste0(fin1416[,1],fin1416[,2])
+fin1416<-fin1416[,-1:-2]
+
+fin_p14<-sqldf('SELECT code,total_avg,	city_avg,	pro_avg,Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin1416 where year=2014')
+fin_p14<-setNames(data.frame(t(fin_p14[,-1])), fin_p14[,1])
+fin_p14$year<-2014
+
+fin_p15<-sqldf('SELECT code,total_avg,	city_avg,	pro_avg,Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin1416 where year=2015')
+fin_p15<-setNames(data.frame(t(fin_p15[,-1])), fin_p15[,1])
+fin_p15$year<-2015
+fin_p15<-fin_p15[ ,-4:-5]
+
+fin_p16<-sqldf('SELECT code,total_avg,	city_avg,	pro_avg,Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin1416 where year=2016')
+fin_p16<-setNames(data.frame(t(fin_p16[,-1])), fin_p16[,1])
+fin_p16$year<-2016
+fin_p16<-fin_p16[ ,-4:-5]
+
+fin_panel1416<-rbind(fin_p14,fin_p15,fin_p16)
+
+paste('결산공시 1416 :',kmeansinYr(fin_panel1416,kmeans1416))
+withinssatK(fin_panel1416)
+hopkinsYr(fin_panel1416)
+
+
+### 17-19
+
+fin1719<-sqldf('SELECT index_code,item_code,total_avg,	city_avg,	pro_avg,year,	Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin_pan where h2_index=3 and year>2016')
+
+fin1719$code<-paste0(fin1719[,1],fin1719[,2])
+fin1719<-fin1719[,-1:-2]
+
+fin_p17<-sqldf('SELECT code,total_avg,	city_avg,	pro_avg,Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin1719 where year=2017')
+fin_p17<-setNames(data.frame(t(fin_p17[,-1])), fin_p17[,1])
+fin_p17<-fin_p17[,-21:-24]
+fin_p17$year<-2017
+
+fin_p18<-sqldf('SELECT code,total_avg,	city_avg,	pro_avg,Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin1719 where year=2018')
+fin_p18<-setNames(data.frame(t(fin_p18[,-1])), fin_p18[,1])
+fin_p18<-fin_p18[,-21:-24]
+fin_p18$year<-2018
+
+fin_p19<-sqldf('SELECT code,total_avg,	city_avg,	pro_avg,Seoul,	Busan,	Daegu,	Inchen,	Gwangju,	Daejun,	Ulsan,	Seojong,	Gyeonggi,	Gangwon,	Chungbuk,	Chungnam,	Jeonbuk,	Jeonnam,	Gyeongbuk,	Gyeongnam,	Jeju 
+             FROM fin1719 where year=2019')
+fin_p19<-setNames(data.frame(t(fin_p19[,-1])), fin_p19[,1])
+fin_p19<-fin_p19[,-21:-24]
+fin_p19$year<-2019
+
+fin_panel1719<-rbind(fin_p17,fin_p18,fin_p19)
+fin_panel1719<-fin_panel1719[,-6]
+fin_panel1719<-fin_panel1719[,-19]
+
+paste('결산공시 1719 :',kmeansinYr(fin_panel1719,kmeans1719))
+withinssatK(fin_panel1719)
+hopkinsYr(fin_panel1719)
+
+##############
+
+# fin_panel1416
+
+fin1416.pc <- prcomp(scale(fin_panel1416), center = FALSE, scale. = FALSE)$x %>% as.data.frame()
+fin1416.km<-kmeans(scale(fin_panel1416), centers, nstart = nstart)
+fin1416.pc$kmeans.cluster <- fin1416.km$cluster
+
+
+fin1416.km_cluster<-as.factor(fin1416.km$cluster)
+fin1416.rf_fit <- randomForest(x = fin_panel1416, y = fin1416.km_cluster, mtry=20, importance = TRUE )
+#fin1416.rf_fit <- randomForest(x = fin_panel1416, y = fin1416.km$cluster, ntree = 10000, proximity = TRUE, oob.prox = TRUE)
+#fin1416.hc_fit <- hclust(as.dist(1-fin1416.rf_fit$proximity), method = "ward.D2")
+#fin1416.rf = cutree(fin1416.rf_fit, k=centers)
+#fin1416.pc$rf.clusters <- fin1416.rf
+
+# type : either 1 or 2, specifying the type of importance measure
+#(1=mean decrease in accuracy, 2=mean decrease in node impurity).
+randomForest::importance(fin1416.rf_fit, type=2)
+randomForest::varImpPlot(fin1416.rf_fit)
+print(fin1416.rf_fit)
+
+viz1416.km<-fviz_cluster(list(data = scale(fin_panel1416), cluster = fin1416.km$cluster),
+                         ellipse.type = "convex", geom = c("point","text"), stand = FALSE,
+                         palette = "jco", ggtheme = theme_classic(),main = "Cluster plot - km")
+viz1416.km
+
+fin1416.km_cluster<-as.factor(fin1416.km$cluster)
+fin1416.rf_fit <- randomForest(x = fin_panel1416, y = fin1416.km_cluster, mtry=15, importance = TRUE )
+
+viz1416.rf<-fviz_cluster(list(data = scale(fin_panel1416), cluster = fin1416.rf_fit$predicted),
+                         ellipse.type = "convex", geom = c("point","text"), stand = FALSE,
+                         palette = "jco", ggtheme = theme_classic(),main = "Cluster plot")
+
+viz1416.rf
+
+
+fin1719.pc <- prcomp(scale(fin_panel1719), center = FALSE, scale. = FALSE)$x %>% as.data.frame()
+fin1719.km<-kmeans(scale(fin_panel1719), centers, nstart = nstart)
+fin1719.pc$kmeans.cluster <- fin1719.km$cluster
+
+
+fin1719.km_cluster<-as.factor(fin1719.km$cluster)
+fin1719.rf_fit <- randomForest(x = fin_panel1719, y = fin1719.km_cluster, mtry=15, importance = TRUE )
+#fin1719.rf_fit <- randomForest(x = fin_panel1719, y = fin1719.km$cluster, ntree = 10000, proximity = TRUE, oob.prox = TRUE)
+#fin1719.hc_fit <- hclust(as.dist(1-fin1719.rf_fit$proximity), method = "ward.D2")
+#fin1719.rf = cutree(fin1719.rf_fit, k=centers)
+#fin1719.pc$rf.clusters <- fin1719.rf
+
+# type : either 1 or 2, specifying the type of importance measure
+#(1=mean decrease in accuracy, 2=mean decrease in node impurity).
+randomForest::importance(fin1719.rf_fit, type=2)
+randomForest::varImpPlot(fin1719.rf_fit)
+print(fin1719.rf_fit)
+
+viz1719.km<-fviz_cluster(list(data = scale(fin_panel1719), cluster = fin1719.km$cluster),
+                         ellipse.type = "convex", geom = c("point","text"), stand = FALSE,
+                         palette = "jco", ggtheme = theme_classic(),main = "Cluster plot - km")
+viz1719.km
+
+fin1719.km_cluster<-as.factor(fin1719.km$cluster)
+fin1719.rf_fit <- randomForest(x = fin_panel1719, y = fin1719.km_cluster, mtry=20, importance = TRUE )
+
+viz1719.rf<-fviz_cluster(list(data = scale(fin_panel1719), cluster = fin1719.rf_fit$predicted),
+                         ellipse.type = "convex", geom = c("point","text"), stand = FALSE,
+                         palette = "jco", ggtheme = theme_classic(),main = "Cluster plot")
+
+viz1719.rf
+
+
+
+
+# fin14_t
+
+fin14.pc <- prcomp(scale(fin14_t), center = FALSE, scale. = FALSE)$x %>% as.data.frame()
+fin14.km<-kmeans(scale(fin14_t), centers, nstart = nstart)
+fin14.pc$kmeans.cluster <- fin14.km$cluster
+
+fin14.rf_fit <- randomForest(x = fin14_t, y = NULL, ntree = 10000, proximity = TRUE, oob.prox = TRUE)
+fin14.hc_fit <- hclust(as.dist(1-fin14.rf_fit$proximity), method = "ward.D2")
+fin14.rf = cutree(fin14.hc_fit, k=centers)
+fin14.pc$rf.clusters <- fin14.rf
+
+# type : either 1 or 2, specifying the type of importance measure
+#(1=mean decrease in accuracy, 2=mean decrease in node impurity).
+randomForest::importance(fin14.rf_fit, type=2)
+randomForest::varImpPlot(fin14.rf_fit)
+print(fin14.rf_fit)
+
+viz14.km<-fviz_cluster(list(data = scale(fin14_t), cluster = fin14.km$cluster),
+                       ellipse.type = "convex", geom = c("point","text"), stand = FALSE,
+                       palette = "jco", ggtheme = theme_classic(),main = "Cluster plot - km")
+viz14.km
+
+viz14.rf<-fviz_cluster(list(data = scale(fin14_t), cluster = fin14.rf),
+                       ellipse.type = "convex", geom = c("point","text"), stand = FALSE,
+                       palette = "jco", ggtheme = theme_classic(),main = "Cluster plot")
+
+viz14.rf
+
+
+
+
+
+##################
+
+
+
+install.packages("NbClust")
+library(NbClust)
+
+nc <- NbClust(scale(fin14_t), distance = NULL, min.nc = 2, max.nc = 8, method = "kmeans")
+
+?NbClust
+
+withinssatK <- function(fin19_t, nc = 8, seed = 0120) {
+  wss <- (nrow(fin19_t) - 1) * sum(apply(fin19_t, 2, var))
+  for (i in 2:nc) {
+    set.seed(seed)
+    wss[i] <- sum(kmeans(fin19_t, centers=i)$withinss)}
+  plot(1:nc, wss, type="b", xlab = "Number of Clusters",
+       ylab = "Within groups sum of squares", main="sum(withinss) at K")}
+
+wssplot(fin19_t)
+
+####################################
+
+#visualizing the results
+
+kmeans14<-kmeans(scale(fin14_t), centers, nstart = nstart)
+
+fviz_nbclust(scale(fin14_t), kmeans, method="wss")
+
+
+  geom_vline(xintercept = 3, linetype = 2)
+
+
+fviz_gap_stat(
+  gap_stat,
+  linecolor = "steelblue",
+  maxSE = list(method = "firstSEmax", SE.factor = 1)
+)
+
+?fviz_nbclust
+
+viz14<-fviz_cluster(list(data = scale(fin14_t), cluster = kmeans14$cluster),
+                       ellipse.type = "norm", geom = "point", stand = FALSE,
+                       palette = "jco", ggtheme = theme_classic(),main = "Cluster plot - fin14")
+
+viz14<-fviz_cluster(list(data = fin14_t, cluster = kmeans14$cluster),
+                    ellipse.type = "euclid", geom = c("point","text"), stand = TRUE,
+                    palette = "jco", ggtheme = theme_classic(),main = "Cluster plot")
+
+viz14
+
+fviz_silhouette(scale(fin14_t), label = FALSE, print.summary = TRUE)
+
+?fviz_cluster
+
+?factoextra
