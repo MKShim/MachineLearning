@@ -1,0 +1,526 @@
+clear
+set more off
+
+use /Users/minkyoung/Documents/data/Labor/data/klips24p.dta
+sort pid
+sort hhid24
+
+* 일주일 총 근로시간 - Y
+
+gen work_dummy = 0
+replace work_dummy = 1 if p240201 == 1
+
+gen work_hour = .
+replace work_hour = 0 if work_dummy == 0
+
+** 임금 근로자
+
+gen regular_workhour = 0
+replace regular_workhour = 1 if p241003 == 1
+
+replace work_hour = p241004 * p241005 if regular_workhour == 0
+replace work_hour = p241006 * p241007 if regular_workhour == 1
+
+gen overwork_dummy = 0
+replace overwork_dummy = 1 if p241011 == 2
+
+gen overwork_week = 0
+replace overwork_week = p241012 * p241013 if overwork_dummy == 1 & p241019 == 1
+gen overwork_month = 0
+replace overwork_month = (p241012 * p241013)/4 if overwork_dummy == 1 & p241019 == 2
+
+replace work_hour = work_hour + overwork_week + overwork_month
+
+
+egen house_workhour = total(work_hour), by(hhid24)
+
+
+** 비임금 근로자
+
+gen nopaywork_hour = 0
+replace nopaywork_hour = p241031*p241032 if p241031!=.
+
+** 상용직 & 고용주나 자영업자 1 , 임시직 일용직 무급종사자 0
+* p240314 : 상용직, 임시직, 일용직, 고용주/자영업, 무급가족종사
+
+* 일 안하면 work_type = .
+gen work_type = .
+replace work_type = p240314 if p240314 !=.
+
+gen work_type_dum = .
+replace work_type_dum = 0 if work_type == 2
+replace work_type_dum = 0 if work_type == 3
+replace work_type_dum = 0 if work_type == 5
+
+replace work_type_dum = 1 if work_type == 1
+replace work_type_dum = 1 if work_type == 4
+
+* 시간제 = 1, 전일제 0
+gen parttime = 0
+replace parttime = 1 if p240315 == 1
+
+* 아파서 직업 활동이 어려운 경우 1
+gen job_difficulty = 0
+replace job_difficulty = 1 if p246109 == 1
+
+
+** 근로소득(month)
+
+* 임금근로자
+gen labor_income = 0
+replace labor_income = p241642 - p241643 if p241641 == 1
+
+
+gen labor_eval = 0
+replace labor_income = 0 if work_type == 3
+replace labor_eval = (labor_income - 103)*0.7 
+replace labor_eval = 0 if labor_eval < 0
+
+egen house_laboreval = total(labor_eval), by(hhid24)
+
+* 비임금근로자 ( not used)
+
+gen nonlabor_income = 0
+replace nonlabor_income = p241672 if p241671 == 1
+
+
+* 사업소득
+
+gen tot_busi_income = 0
+replace tot_busi_income = p241662 if p241662 !=.
+
+gen busi_cost1 = 0
+replace busi_cost1 = p241691 if p241691 !=.
+
+gen busi_cost2 = 0
+replace busi_cost2 = p241692 if p241692 !=.
+
+gen busi_cost3 = 0
+replace busi_cost3 = p241694 if p241694 !=.
+
+gen busi_income = 0
+replace busi_income = tot_busi_income - busi_cost1 -busi_cost2 - busi_cost3
+
+egen house_busieval = total(busi_income), by(hhid24)
+
+
+keep if p240102 == 10
+
+
+** Features - X & Z
+
+merge 1:m hhid24 using "/Users/minkyoung/Documents/data/Labor/data/klips24h.dta"
+sort hhid24
+drop if pid==.
+
+
+* 18통합표본
+*drop if orghid18 == .
+
+* 24차 가구 표본
+*drop if hhid24 == .
+
+* 기초보장 수급 여부 - Z
+
+gen trt = 0
+replace trt = 1 if h242171 == 1
+
+* 가구원 수
+gen number_household = h240150
+
+gen holder_dummy1 = 0
+replace holder_dummy1 = 1 if h240261 == 10
+
+gen holder_dummy2 = 0
+replace holder_dummy2 = 1 if h240262 == 10
+
+gen holder_dummy3 = 0
+replace holder_dummy3 = 1 if h240263 == 10
+
+gen holder_dummy4 = 0
+replace holder_dummy4 = 1 if h240264 == 10
+
+gen holder_dummy5 = 0
+replace holder_dummy5 = 1 if h240265 == 10
+
+gen holder_dummy6 = 0
+replace holder_dummy6 = 1 if h240266 == 10
+
+gen holder_dummy7 = 0
+replace holder_dummy7 = 1 if h240267 == 10
+
+gen gender = .
+replace gender = h240241 if holder_dummy1 == 1
+replace gender = h240242 if holder_dummy2 == 1
+replace gender = h240243 if holder_dummy3 == 1
+replace gender = h240244 if holder_dummy4 == 1
+replace gender = h240245 if holder_dummy5 == 1
+replace gender = h240246 if holder_dummy6 == 1
+replace gender = h240247 if holder_dummy7 == 1
+
+gen edu = .
+replace edu = h240661 if holder_dummy1 == 1
+replace edu = h240662 if holder_dummy2 == 1
+replace edu = h240663 if holder_dummy3 == 1
+replace edu = h240664 if holder_dummy4 == 1
+replace edu = h240665 if holder_dummy5 == 1
+replace edu = h240666 if holder_dummy6 == 1
+replace edu = h240667 if holder_dummy7 == 1
+
+** Income
+
+gen work_income = .
+replace work_income = 0 if h242101 == 2
+replace work_income = h242102 if h242101 == 1
+
+** 금융소득
+gen fin_income = .
+replace fin_income = 0 if h242111 == 2
+
+gen fin_income1 = 0
+replace fin_income1 = h242112 if h242112 != .
+gen fin_income2 = 0
+replace fin_income2 = h242113 if h242113 != .
+gen fin_income3 = 0
+replace fin_income3 = h242114 if h242114 != .
+gen fin_income4 = 0
+replace fin_income4 = h242115 if h242115 != .
+gen fin_income5 = 0
+replace fin_income5 = h242116 if h242116 != .
+
+replace fin_income = fin_income1 + fin_income2 + fin_income3 + fin_income4 + fin_income5
+
+** 부동산 소득
+gen realty_income = .
+replace realty_income = 0 if h242121 == 2
+gen realty_income1 = 0
+replace realty_income1 = h242122 if h242122 != .
+gen realty_income2 = 0
+replace realty_income2 = h242123 if h242123 != .
+gen realty_income3 = 0
+replace realty_income3 = h242124 if h242124 != .
+gen realty_income4 = 0
+replace realty_income4 = h242125 if h242125 != .
+gen realty_income5 = 0
+replace realty_income5 = h242126 if h242126 != .
+
+replace realty_income = realty_income1 + realty_income2 + realty_income3 + realty_income4 + realty_income5
+
+** 공공 보험소득
+
+gen insurance_income = 0
+replace insurance_income = 0 if h242131 == 2
+gen insurance_income1 = 0
+replace insurance_income1 = h242134 if h242134 != .
+gen insurance_income2 = 0
+replace insurance_income2 = h242136 if h242136 != .
+gen insurance_income3 = 0
+replace insurance_income3 = h242138 if h242138 != .
+replace insurance_income = insurance_income1 + insurance_income2 + insurance_income3
+
+** 기타소득
+gen etc_income = 0 
+replace etc_income = 0 if h242181 == 2
+
+* 손해 보험금
+gen etc_income1 = 0
+replace etc_income1 = h242183 if h242183 != .
+* 저축성 보험금
+gen etc_income2 = 0
+replace etc_income2 = h242184 if h242184 != .
+* 종신 보험금
+gen etc_income3 = 0
+replace etc_income3 = h242185 if h242185 != .
+* 퇴직금
+gen etc_income4 = 0
+replace etc_income4 = h242186 if h242186 != .
+* 증여/ 상속
+gen etc_income5 = 0
+replace etc_income5 = h242187 if h242187 != .
+* 축의 조의금
+gen etc_income6 = 0
+replace etc_income6 = h242188 if h242188 != .
+*당첨금
+gen etc_income7 = 0
+replace etc_income7 = h242189 if h242189 != .
+* 재해보상금
+gen etc_income8 = 0
+replace etc_income8 = h242190 if h242190 != .
+
+replace etc_income = etc_income1 + etc_income2 + etc_income3 + etc_income4 + etc_income5 + etc_income6 + etc_income7 + etc_income8
+
+** 이전소득 공적 / 사적 구분 필요
+
+gen trans_income = 0
+replace trans_income = 0 if h242151 == 2
+
+* 기초보장 지원금
+
+gen trans_income1 = 0
+replace trans_income1 = h242152 if h242152 != .
+
+* 기타 정부 보조금(기초연금, 장애인연금, 양육수당 등등)
+
+gen trans_income2 = 0
+replace trans_income2 = h242153 if h242153 != .
+
+* 사회단체 보조금
+gen trans_income3 = 0
+replace trans_income3 = h242155 if h242155 != .
+
+* 친지 보조금
+gen trans_income4 = 0
+replace trans_income4 = h242162 if h242162 != .
+
+* 따로 사는 자녀
+gen trans_income5 = 0
+replace trans_income5 = h242157 if h242157 != .
+
+* 그외 친척
+gen trans_income6 = 0
+replace trans_income6 = h242158 if h242158 != .
+
+* 코로나 정부지원금
+gen trans_income7 = 0
+replace trans_income5 = h242159 if h242159 != .
+
+replace trans_income = trans_income1 + trans_income2 + trans_income3 + trans_income4 + trans_income5 + trans_income6 + trans_income7
+
+gen pub_trans_income = trans_income1 + trans_income2 + trans_income7
+gen prv_trans_income = trans_income3 + trans_income4 + trans_income5 + trans_income6
+
+
+*** Asset
+** REALestate Asset
+
+** Living 
+gen living_asset = 0
+* 자가 시가 
+gen living_asset1 = 0
+replace living_asset1 = h241412 if h241406 == 1
+* 전월세 보증금
+gen living_asset2 = 0
+replace living_asset2 = h241413 if h241406 != 1
+
+replace living_asset = living_asset1 + living_asset2
+
+** NOT living
+gen other_realty_asset = 0
+gen realty_asset1 = 0
+replace realty_asset1 = h242512 if h242501 == 1 & h242511 == 1
+
+gen realty_asset2 = 0
+replace realty_asset2 = 1000 if h242501 == 1 & h242511 == 2 & h242513 == 1
+replace realty_asset2 = 2500 if h242501 == 1 & h242511 == 2 & h242513 == 2
+replace realty_asset2 = 5000 if h242501 == 1 & h242511 == 2 & h242513 == 3
+replace realty_asset2 = 7500 if h242501 == 1 & h242511 == 2 & h242513 == 4
+replace realty_asset2 = 10000 if h242501 == 1 & h242511 == 2 & h242513 == 5
+replace realty_asset2 = 20000 if h242501 == 1 & h242511 == 2 & h242513 == 6
+replace realty_asset2 = 30000 if h242501 == 1 & h242511 == 2 & h242513 == 7
+replace realty_asset2 = 40000 if h242501 == 1 & h242511 == 2 & h242513 == 8
+replace realty_asset2 = 50000 if h242501 == 1 & h242511 == 2 & h242513 == 9
+replace realty_asset2 = 100000 if h242501 == 1 & h242511 == 2 & h242513 == 10
+replace realty_asset2 = 200000 if h242501 == 1 & h242511 == 2 & h242513 == 11
+
+replace other_realty_asset = realty_asset1 + realty_asset2
+
+
+** 빌려주고 받은 임대보증금
+gen get_realty_asset = 0
+gen realty_asset3 = 0
+replace realty_asset3 = h242523 if h242521 == 1 & h242522 == 1
+
+gen realty_asset4 = 0
+replace realty_asset4 = 1000 if h242521 == 1 & h242522 == 3 & h242524 == 1
+replace realty_asset4 = 2500 if h242521 == 1 & h242522 == 3 & h242524 == 2
+replace realty_asset4 = 5000 if h242521 == 1 & h242522 == 3 & h242524 == 3
+replace realty_asset4 = 7500 if h242521 == 1 & h242522 == 3 & h242524 == 4
+replace realty_asset4 = 10000 if h242521 == 1 & h242522 == 3 & h242524 == 5
+replace realty_asset4 = 20000 if h242521 == 1 & h242522 == 3 & h242524 == 6
+replace realty_asset4 = 30000 if h242521 == 1 & h242522 == 3 & h242524 == 7
+replace realty_asset4 = 40000 if h242521 == 1 & h242522 == 3 & h242524 == 8
+replace realty_asset4 = 50000 if h242521 == 1 & h242522 == 3 & h242524 == 9
+replace realty_asset4 = 100000 if h242521 == 1 & h242522 == 3 & h242524 == 10
+replace realty_asset4 = 200000 if h242521 == 1 & h242522 == 3 & h242524 == 11
+
+replace get_realty_asset = realty_asset3 + realty_asset4
+
+
+** 빌리고 준 임차보증금
+gen give_realty_asset = 0
+gen realty_asset5 = 0
+replace realty_asset5 = h242542 if h242531 == 1 & h242541 == 1
+
+gen realty_asset6 = 0
+replace realty_asset6 = 1000 if h242531 == 1 & h242541 == 3 & h242543 == 1
+replace realty_asset6 = 2500 if h242531 == 1 & h242541 == 3 & h242543 == 2
+replace realty_asset6 = 5000 if h242531 == 1 & h242541 == 3 & h242543 == 3
+replace realty_asset6 = 7500 if h242531 == 1 & h242541 == 3 & h242543 == 4
+replace realty_asset6 = 10000 if h242531 == 1 & h242541 == 3 & h242543 == 5
+replace realty_asset6 = 20000 if h242531 == 1 & h242541 == 3 & h242543 == 6
+replace realty_asset6 = 30000 if h242531 == 1 & h242541 == 3 & h242543 == 7
+replace realty_asset6 = 40000 if h242531 == 1 & h242541 == 3 & h242543 == 8
+replace realty_asset6 = 50000 if h242531 == 1 & h242541 == 3 & h242543 == 9
+replace realty_asset6 = 100000 if h242531 == 1 & h242541 == 3 & h242543 == 10
+replace realty_asset6 = 200000 if h242531 == 1 & h242541 == 3 & h242543 == 11
+
+replace give_realty_asset = realty_asset5 + realty_asset6
+
+
+** 금융자산
+* 예적금
+gen fin_asset1 = 0
+replace fin_asset1 = h242562 if h242561 == 1
+* 주식 채권 신탁
+gen fin_asset2 = 0
+replace fin_asset2 = h242564 if h242563 == 1
+* 저축성 보장성 보험
+gen fin_asset3 = 0
+replace fin_asset3 = h242566 if h242565 == 1
+* 계
+gen fin_asset4 = 0
+replace fin_asset4 = h242568 if h242567 == 1
+* 빌려준 돈
+gen fin_asset5 = 0
+replace fin_asset5 = h242570 if h242569 == 1
+
+gen real_finasset = 0
+replace real_finasset = fin_asset1 + fin_asset2 + fin_asset3
+
+** finance Debt
+
+* 금융기관
+gen fin_debt1 = 0
+replace fin_debt1 = h242602 if h242601 == 1
+* 비금융기관
+gen fin_debt2 = 0
+replace fin_debt2 = h242605 if h242604 == 1
+* 개인적으로 빌린 돈
+gen fin_debt3 = 0
+replace fin_debt3 = h242608 if h242607 == 1
+* 전세금/임대보증금 받은 부채
+gen fin_debt4 = 0
+replace fin_debt4 = h242611 if h242610 == 1
+* 계
+gen fin_debt5 = 0
+replace fin_debt5 = h242614 if h242613 == 1
+
+gen real_debt = 0
+replace real_debt = fin_debt1 + fin_debt2 + fin_debt3 + fin_debt4
+
+** Car ; if having car, 1
+
+gen car_dum = 0
+replace car_dum = 1 if h242651 == 1
+
+gen car_asset = 0
+replace car_asset = h242653 if car_dum == 1
+
+** 회원권
+gen etc_asset_dum = 0
+replace etc_asset_dum = 1 if h242661 == 1
+
+gen etc_asset = 0
+replace etc_asset = h242662 if etc_asset_dum == 1
+
+** cost
+gen month_health = 0
+replace month_health = h242318 if h242318 !=.
+
+gen public_pension = 0
+replace public_pension = h242328/2 if h242328 !=.
+
+gen cost = 0
+replace cost = month_health+public_pension
+
+** 재활보조금 자료 없음
+
+
+** location
+* 대도시 1, 중소도시 2, 농어촌 3
+ 
+gen location = 2
+replace location = 1 if h240141 < 8 
+replace location = 3 if h240141 == 8 & h240142 == 27
+replace location = 3 if h240141 == 8 & h240142 == 32
+replace location = 3 if h240141 == 8 & h240142 == 34
+
+replace location = 3 if h240141 == 9 & h240142 >= 8 * h240142 <= 18
+replace location = 3 if h240141 == 10 & h240142 >= 5 * h240142 <= 13
+
+replace location = 3 if h240141 == 11 & h240142 == 6
+replace location = 3 if h240141 == 11 & h240142 >= 9 * h240142 <= 15
+
+replace location = 3 if h240141 == 12 & h240142 >= 8 * h240142 <= 15
+
+replace location = 3 if h240141 == 13 & h240142 >= 7 * h240142 <= 24
+replace location = 2 if h240141 == 13 & h240142 == 15
+
+replace location = 3 if h240141 == 14 & h240142 >= 12 * h240142 <= 24
+
+replace location = 3 if h240141 == 15 & h240142 >= 11 * h240142 <= 21
+replace location = 2 if h240141 == 15 & h240142 == 15
+
+replace location = 3 if h240141 == 16 & h240142 >= 3 * h240142 <= 4
+
+
+** instrument variable : 소득인정액 추정
+
+gen minus_asset = 0
+replace minus_asset = 6900 if location == 1
+replace minus_asset = 4200 if location == 2
+replace minus_asset = 3500 if location == 3
+
+
+* 소득평가액 = 실제소득 - 가구특성별 지출비용 - 근로소득공제
+
+* 실제소득: 근로소득, 사업소득, 재산소득, 공적이전소득, 사전이전소득, 부양비, 보장기관 확인소득
+
+* 근로소득공제 : (x-103)*0.3 x: 일용근로소득, 공공일자리 및 자활 근로소득은 제외
+* 사업소득 : 기타사업소득 + 임대소득
+* 재산소득 : 이자소득+ 연금소득 : 금융소득 의미
+* 공적이전소득
+
+
+* 재산의 소득환산액 = [{(일반·금융재산의 종류별가액 - 기본재산액 - 부채) + 승용차 재산가액} x 재산의 종류별 소득환산율]
+* 재산의 종류: 일반재산, 금융재산, 자동차
+* 기본재산액(생계,주거,교육급여): 대도시(6,900만 원), 중소도시(4,200만 원), 농어촌(3,500만 원)
+* 기본재산액(의료급여): 대도시(5,400만 원), 중소도시(3,400만 원), 농어촌(2,900만 원)
+* 소득환산율: 주거용재산(월 1.04%), 일반재산(월 4.17%), 금융재산 (월 6.26%), 4000이상 자동차(월 100%) + 회원권
+
+gen income_estimataion = 0
+replace income_estimataion = house_laboreval + house_busieval + (fin_income + realty_income +pub_trans_income + prv_trans_income)
+
+gen asset_estimataion = 0
+
+*gen living_asset = living_asset
+gen gen_asset = other_realty_asset + give_realty_asset - minus_asset
+gen fin_asset = (real_finasset - 2000) - real_debt
+
+replace car_asset = 0 if car_asset < 200
+
+gen etc = (etc_asset + car_asset)
+
+replace asset_estimataion = living_asset * 0.0104 + gen_asset * 0.0417 + fin_asset * 0.0626 + etc
+
+gen income_admit = income_estimataion + asset_estimataion
+
+gen payment_basis = 0
+replace payment_basis = 54.8349 if number_household == 1 
+replace payment_basis = 92.6424 if number_household == 2
+replace payment_basis = 119.5185 if number_household == 3 
+replace payment_basis = 146.2887 if number_household == 4 
+replace payment_basis = 172.7212 if number_household == 5 
+replace payment_basis = 198.8581 if number_household == 6
+replace payment_basis = 224.9159 if number_household == 7
+replace payment_basis = 224.9159 + 26.0578 if number_household == 8
+
+gen iv_trt = 0
+replace iv_trt = 1 if income_admit < payment_basis
+
+** 자동차 가액 체크 이게 너무 더해진거같은데 수급1인데 0으로 잘못 맞춤
+* 근로무능력자 가구 재산가액 올려줌 10000, 7300, 6600  job_difficulty == 1
+export excel 24th_var.xlsx, firstrow(varlabels) 
+
+
+
