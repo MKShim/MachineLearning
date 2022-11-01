@@ -1,0 +1,328 @@
+rm(list=ls(all=TRUE))
+setwd("C:\\Users\\chanl\\Downloads")
+
+par(family="nanumgothic")
+theme_set(theme_gray(base_family='nanumgothic'))
+library(forecast)
+library(itsmr)
+library(zoo)
+library(lmtest)
+library(ggplot2)
+library(lubridate)
+library(nortest)
+library(tseries)
+library(rgl)
+library(ExtremeRisks)
+
+library(xts)
+library(quantmod)
+library(rugarch)
+library(PerformanceAnalytics)
+
+?extQuantile
+remotes::install_version("ExtremeRisks", version = "0.0.3")
+
+
+Sys.getenv("PATH")
+update.packages(repos='http://cran.rstudio.com/', ask=FALSE, checkBuilt=TRUE)
+install.packages("~/Downloads/gfortran-12.0.1-20220312-is-darwin20-arm64.tar", type = 'mac.binary')
+
+install.packages(c("ExtremeRisks"), 
+                 dependencies=TRUE,version = "0.0.3",type='mac.binary',
+                 repos="https://cloud.r-project.org")
+
+install.packages('lubridate')
+install.packages("cvar", dependencies=TRUE)
+
+source("C:\\Users\\chanl\\Downloads\\TS-library.R")
+data=read.csv("C:\\Users\\chanl\\Downloads\\etf_price.csv",stringsAsFactors = FALSE)
+
+index.ts<-ts(data$price,start=2010,frequency=248)
+head(index.ts)
+str(index.ts)
+
+summary(data$price)
+
+graphics.off()
+
+# plot
+plot.ts(index.ts);
+title("ETF Price")
+
+par(mfrow=c(1,2))
+acf2(index.ts)
+title("ACF of ETF");
+
+par(mfrow=c(1,2))
+acf(index.ts, main="ACF:ETF price");
+pacf(index.ts, main="PACF:ETF price");
+
+# diff
+data_d1=diff(index.ts)
+data_d2=diff(data_d1)
+
+par(mfrow=c(1,2))
+acf(data_d1, main="ACF:ETF price with diff=1");
+pacf(data_d1, main="PACF:ETF price with diff=1");
+
+
+par(mfrow=c(1,2))
+acf(data_logd1, main="ACF:ETF log(price) with diff=1");
+pacf(data_logd1, main="PACF:ETF log(price) with diff=1");
+
+
+#####
+
+
+# chk linear trend
+n = length(data$price);
+x = seq(from=1, to = n, by=1);
+out.lm = lm(data$price ~ 1 + x);
+summary(out.lm)
+
+#residual diagnostic
+plot.ts(data$price);
+title("imports-linear trend")
+lines(out.lm$fitted.values,col='red')
+
+plot.ts(out.lm$residuals);
+title("diff1 residual");
+
+plot(out.lm,which=c(1,2))
+
+# Seems to be quadratic ##
+# chk quad trend
+x2 = x^2;
+out.lm2 = lm(data$price ~ 1 + x + x2);
+summary(out.lm2)
+
+plot.ts(data$price);
+title("imports-quadratic trend")
+lines(out.lm2$fitted.values,col='red')
+
+plot.ts(out.lm2$residuals);
+title("diff2 residual");
+
+plot(out.lm2,which=c(1,2))
+
+
+ndiffs(index.ts)
+nsdiffs(index.ts)
+
+par(mfrow=c(1,1))
+plot(data_d1,ylab="Daily Price",main="First Order Differenced")
+
+par(mfrow=c(1,1))
+plot(data_d2,ylab="Daily Price",main="Second Order Differenced")
+
+data_log=log(data$price)
+data_logd1=diff(data_log)
+par(mfrow=c(1,2))
+plot(data_d1,ylab="Daily Price",main="First Order Differenced")
+plot(data_logd1,ylab="Log(Daily Price)",main="Diff=1 & log trans")
+
+#AR(4)
+auto_ar_fit=ar(data_logd1, method="ols", order.max=6)
+auto_ar_fit$resid
+
+#ARIMA(2,1,2)
+auto_arima_fit=auto.arima(data_log)
+auto_arima_fit
+
+checkresiduals(auto_arima_fit)
+
+ResidualDiagnose(auto_arima_fit,season=FALSE)
+
+test(auto_arima_fit$residuals)
+lillie.test(auto_arima_fit$residuals)
+jarque.bera.test(auto_arima_fit$residuals)
+
+
+
+par(mfrow=c(2,2))
+plot(auto_ar_fit$resid, main="Residuals from AR(4)",ylab="Residuals")
+Acf(auto_ar_fit$resid, main= "Residuals from AR(4)", sep="")
+Pacf(auto_ar_fit$resid, main= "Residuals from AR(4)", sep="")
+qqnorm(auto_ar_fit$resid, ylab="Residuals",xlab="Quantiles")
+qqline(auto_ar_fit$resid, col = 2)
+
+test(na.omit(auto_ar_fit$resid))
+lillie.test(na.omit(auto_ar_fit$resid))
+jarque.bera.test(na.omit(auto_ar_fit$resid))
+
+round(rbind(accuracy(auto_arima_fit),accuracy(auto_ar_fit)),4)
+?accuracy
+accuracy(auto_ar_fit)
+auto_arima_fit
+auto_ar_fit$ar
+
+predict(auto_arima_fit, n.ahead=10)
+
+fit <- Arima(data_log, c(3,1,2), include.drift = TRUE)
+fit
+forecast(fit, h= 5)
+
+detach("package:itsmr", unload=TRUE)
+auto_arima_fit_fore=forecast(auto_arima_fit,h=10)
+auto_arima_fit_fore
+auto_arima_fit_fore %>% autoplot()
+?autoplot
+
+plot(auto_arima_fit_fore,ylob="log(ETF price)", main="Forecast of ETF price, 10 days")
+plot(auto_arima_fit_fore)
+
+real_data=array(data=c(35473,34906,35054,34640,34985,35510,35375,35290,35375,34885))
+log_real_data=log(real_data)
+log_real_data
+
+extQhat1<-extQuantile(data_log,tau=0.97,tau1=0.9995,var=TRUE,bigBlock = 65,smallBlock = 15)
+extQhat1$ExtQHat
+extQhat1$CIExtQ
+
+extQhat2<-extQuantile(data_log,tau=0.97,tau1=0.9995,var=TRUE,bigBlock = 65,smallBlock = 15,alpha=0.01)
+extQhat2$ExtQHat
+extQhat2$CIExtQ
+
+
+data_log=log(data$price)
+data_logd1=diff(data_log)
+return<-data_logd1
+
+chart_Series(return)
+chart.Histogram(return,method=c('add.density','add.normal'),colorset=c('blue','red','black'))
+legend("topright",legend=c("return","density","normal dist"),fill=c('blue','red','black'))
+
+chart.Histogram(return,method=c('add.density','add.sst'),colorset=c('blue','red','black'))
+legend("topright",legend=c("return","density","sst dist"),fill=c('blue','red','black'))
+
+garch_spec<-ugarchspec(variance.model=list(model="sGARCH",garchOrder=c(1,1)),mean.model=list(armaOrder=c(0,0)),distribution.model="norm")
+model_fit<-ugarchfit(data=return, spec=garch_spec)
+model_fit
+
+
+garch_spec_t<-ugarchspec(mean.model=list(armaOrder=c(0,0)),variance.model=list(model="sGARCH",garchOrder=c(1,1)),distribution.model="std")
+model_fit2<-ugarchfit(data=return, spec=garch_spec_t)
+model_fit2
+
+garch_spec_st<-ugarchspec(mean.model=list(armaOrder=c(0,0)),variance.model=list(model="sGARCH",garchOrder=c(1,1)),distribution.model="sstd")
+model_fit3<-ugarchfit(data=return, spec=garch_spec_st)
+model_fit3
+
+garch_spec_st2<-ugarchspec(mean.model=list(armaOrder=c(1,1)),variance.model=list(model="sGARCH",garchOrder=c(1,1)),distribution.model="sstd")
+model_fit4<-ugarchfit(data=return, spec=garch_spec_st2)
+model_fit4
+
+garch_spec_st3<-ugarchspec(mean.model=list(armaOrder=c(1,0)),variance.model=list(model="sGARCH",garchOrder=c(1,1)),distribution.model="sstd")
+model_fit5<-ugarchfit(data=return, spec=garch_spec_st3)
+model_fit5
+
+garch_spec_st4<-ugarchspec(mean.model=list(armaOrder=c(0,1)),variance.model=list(model="sGARCH",garchOrder=c(1,1)),distribution.model="sstd")
+model_fit6<-ugarchfit(data=return, spec=garch_spec_st4)
+model_fit6
+
+garch_spec_st5<-ugarchspec(mean.model=list(armaOrder=c(0,0)),variance.model=list(model="sGARCH",garchOrder=c(1,0)),distribution.model="sstd")
+model_fit7<-ugarchfit(data=return, spec=garch_spec_st5)
+model_fit7
+
+plot(model_fit3, which=c("ask"))
+
+data4<-data3
+
+data2<-data.frame(ymd(data$date),diff(log(data$price)))
+names(data2)<-c("date","price")
+head(data2)
+
+data_log=log(data$price)
+data_logd1=diff(data_log)
+return<-data_logd1
+
+head(return)
+data4<-data.frame(ymd(data4$date),data4$price)
+names(data4)<-c("date","price")
+
+
+data$price<-diff(log(data$price))
+data$date<-ymd(data$date)
+
+head(ymd(data4$date))
+library(lubridate)
+
+data4<-data.frame(data$date[2:3000],return)
+names(data4)<-c("date","price")
+data4<-data.frame(ymd(data4$date),data4$price)
+
+head(return2)
+
+return2<-xts(data4$price,order.by=data4$date)
+
+VaRTest(alpha=0.05,return,VaR,conf.level=0.95)
+
+filt=ugarrchfilter(garch_spec_st,data=return[])
+
+var.t2<-ugarchroll(garch_spec_st, data=return2, n.ahead = 1, n.start = 2400, forecast.length = 10,
+                  refit.every = 100, refit.window = "rolling", calculate.VaR = TRUE,VaR.alpha = c(0.001,0.05))
+
+rugarch::qdist("sstd",0.05,mu=0.000270,sigma=0.000156 ,shape=3.5112278463 )
+
+VaR95_sstd=mean(return)+var.t@forecast$density[,'Sigma']*qdist(distribution = 'sstd',shape = 3.5112278463,p=0.05)
+VaR99_sstd=mean(return)+var.t@forecast$density[,'Sigma']*qdist(distribution = 'sstd',shape = 3.5112278463,p=0.01)
+
+VaR99_sstd
+mean(return)
+?write.csv
+write.csv(ch2,file="VaR.csv")  
+ch2<-var.t@forecast$VaR
+mean(ch$`alpha(5%)`)
+report(var.t2,VaR.alpha=0.001)
+report(var.t,VaR.alpha=0.01)
+report(var.t,VaR.alpha=0.05)
+
+par(mfrow=c(1,2))
+plot(var.t,which=4,VaR.alpha=0.05)
+title("VaR with alpha=0.05")
+plot(var.t,which=4,VaR.alpha=0.01)
+title("VaR with alpha=0.01")
+
+plot(var.t2,which=4,VaR.alpha=0.001)
+title("VaR with alpha=0.001")
+
+plot(var.t,which='all',VaR.alpha=0.01)
+
+return[2000:2999]
+filt = ugarchfilter(garch_spec_st, return[2000:2999], n.old = 1000)
+actual = return[2001:3000,1]
+
+# location+scale invariance allows to use [mu + sigma*q(p,0,1,skew,shape)]
+VaR = fitted(filt) + sigma(filt)*qdist("sstd", p=0.05, mu = 0, sigma = 1,
+                                       skew = coef(fit)["skew"], shape=coef(fit)["shape"])
+print(VaRDurTest(0.05, actual, VaR))
+
+
+fitdist(distribution = "sstd",return)$pars
+
+
+library(xts)
+?ugarchroll
+head(sp500ret)
+
+head(return)
+forc3<-ugarchforecast(model_fit3,n.ahead=10)
+forc3
+plot(forc3,which='ask')
+
+garch_spec_st6<-ugarchspec(mean.model=list(armaOrder=c(0,0)),variance.model=list(model="eGARCH",garchOrder=c(1,0)),distribution.model="sstd")
+model_fit8<-ugarchfit(data=return, spec=garch_spec_st6)
+model_fit8
+
+graphics.off()
+
+forecast3<-ugarchforecast(model_fit3,n.ahead=10)
+forecast3
+
+plot(model_fit3)
+
+exp(0.0002704)
+
+?plot
+?ugarchfit
+?ugarchspec
