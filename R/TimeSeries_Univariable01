@@ -1,0 +1,193 @@
+setwd("/Users/minkyoung/Documents/Working/RA")
+par(family="nanumgothic")
+theme_set(theme_gray(base_family='nanumgothic'))
+library(forecast)
+library(itsmr)
+library(zoo)
+library(lmtest)
+
+rm(list=ls(all=TRUE))
+source("TS-library.R")
+data=read.csv("ATS-midterm-data.csv")
+index.ts<-ts(data$index,start=2015,frequency=365.25)
+
+head(index.ts)
+index.ts
+
+graphics.off()
+
+# plot
+plot.ts(index.ts);
+title("economic index")
+
+acf2(index.ts)
+title("ACF of economic index");
+acf(index.ts, main="ACF:economic index");
+pacf(index.ts, main="PACF:economic index");
+
+# diff
+data_d1=diff(index.ts)
+data_d2=diff(data_d1)
+
+acf(data_d1, main="ACF:economic index, d=1");
+pacf(data_d1, main="PACF:economic index ,d=1");
+
+# seasonality
+
+data180=diff(index.ts, lag=180)
+
+par(mfrow=c(1,2))
+acf(data180, main="ACF:economic index, d=1, lag=180");
+pacf(data180, main="PACF:economic index ,d=1, lag=180");
+
+
+
+par(mfrow=c(1,2))
+acf(diff(data180), main="ACF:economic index, d=1, lag=180");
+pacf(diff(data180), main="PACF:economic index ,d=1, lag=180");
+
+
+acf(data180, main="ACF:economic index, d=1");
+pacf(data180, main="PACF:economic index ,d=1");
+
+
+
+#fit1
+fit=auto.arima(index.ts,d=1)
+fit
+ResidualDiagnose(fit,season=FALSE)
+
+
+fit=auto.arima(index.ts,d=1)
+fit
+ResidualDiagnose(fit,season=FALSE)
+
+
+
+fit2=auto.arima(data180,d=1)
+fit2
+ResidualDiagnose(fit2,season=FALSE)
+
+
+#fit2
+fit3=arima(index.ts,order=c(5,1,5),seasonal = list(order=c(1,1,2),period=60))
+fit3
+ResidualDiagnose(fit3,season=TRUE)
+
+
+ndiffs(index.ts)
+nsdiffs(index.ts)
+data_l12=diff(index.ts, lag=12)
+
+data_l30=diff(index.ts, lag=30)
+data_l60=diff(index.ts, lag=60)
+
+data_l180=diff(index.ts, lag=180)
+data_d1_l180=diff(data_l180)
+data_d1_l1802=diff(data_d1_l180)
+
+plot.ts(data_d1);
+title("economic index, diff=1")
+
+acf(data_d1, main="ACF:economic index, diff=1");
+
+acf2(data_d1)
+title("ACF:economic index, diff=1")
+
+pacf(data_d1, main="PACF:economic index, diff=1");
+
+acf2(data_l12)
+title("ACF:economic index, lag=12")
+
+pacf(data_l12, main="PACF:economic index, lag=12");
+
+pacf(data_l180, main="PACF:economic index, lag=180");
+acf(data_l180, main="PACF:economic index, lag=180");
+
+
+pacf(diff(data_l180), main="PACF:economic index, lag=180");
+acf(diff(data_l180), main="PACF:economic index, lag=180");
+
+
+
+acf2(data_l180);
+
+
+
+
+fit2=arima(index.ts,order(1,1,1),seasonal = list(order=c(0,1,1),period=180))
+
+
+ResidualDiagnose(fit,season=FALSE)
+
+# log trans & plot
+lndata=log(data)
+par(mfrow=c(1,2))
+plot.ts(data, main="Raw");
+plot.ts(lndata, main="log_trans");
+
+# draw acf, PACF
+par(mfrow=c(1,2)) 
+acf(data, main="ACF");
+pacf(data, main="PACF");
+
+# YW estimation
+ar.yw(lake,aic=FALSE)
+
+
+# chk linear trend
+n = length(data);
+x = seq(from=1, to = n, by=1);
+out.lm = lm(data ~ 1 + x);
+summary(out.lm)
+
+#residual diagnostic
+plot.ts(data);
+title("imports-linear trend")
+lines(out.lm$fitted.values,col='red')
+
+plot(out.lm,which=c(1,2))
+
+
+# chk quad trend
+x2 = x^2;
+out.lm2 = lm(data ~ 1 + x + x2);
+summary(out.lm2)
+
+
+
+
+
+
+season.avg = season(data, d=15); 
+
+
+test(out.lm$residuals);
+
+plot.ts(data);
+title("AirPassengers");
+lines(out.lm$fitted.values, col="red")
+
+plot.ts(out.lm$residuals);
+title("diff1 residual");
+
+plot.ts(out.lm2$residuals);
+title("diff2 residual");
+
+plot.ts(out.lm2$residuals-season.avg);
+title("2차 차분 + 계절 차분(d=15)");
+lines(x, season.avg + mean(data), col="red");
+
+
+par(mfrow=c(2,2));
+plot(out.lm2)
+
+acf2(out.lm2$residuals);
+title("sample ACF of residuals");
+plot(out.lm2$residuals[1:(n-1)], out.lm$residuals[2:n], xlab="Y_{t-1}", ylab="Y_t");
+title("Plot of residuals - Lag1")
+plot(out.lm2$residuals[1:(n-2)], out.lm$residuals[3:n], xlab="Y_{t-2}", ylab="Y_t");
+title("Plot of residuals - Lag2")
+plot(out.lm2$residuals[1:(n-3)], out.lm$residuals[4:n], xlab="Y_{t-3}", ylab="Y_t");
+title("Plot of residuals - Lag3")
+
